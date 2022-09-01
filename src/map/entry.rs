@@ -15,8 +15,6 @@ use Entry::*;
 /// This `enum` is constructed from the [`entry`] method on [`BTreeMap`].
 ///
 /// [`entry`]: BTreeMap::entry
-
-#[cfg_attr(not(test), rustc_diagnostic_item = "BTreeEntry")]
 pub enum Entry<'a, K: 'a, V: 'a> {
     /// A vacant entry.
     Vacant(VacantEntry<'a, K, V>),

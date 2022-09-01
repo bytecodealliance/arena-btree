@@ -164,9 +164,6 @@ pub(super) const MIN_LEN: usize = node::MIN_LEN_AFTER_SPLIT;
 /// // modify an entry before an insert with in-place mutation
 /// player_stats.entry("mana").and_modify(|mana| *mana += 200).or_insert(100);
 /// ```
-
-#[cfg_attr(not(test), rustc_diagnostic_item = "BTreeMap")]
-#[rustc_insignificant_dtor]
 pub struct BTreeMap<K, V> {
     root: Option<Root<K, V>>,
     length: usize,
@@ -176,7 +173,7 @@ pub struct BTreeMap<K, V> {
     _marker: PhantomData<Box<(K, V)>>,
 }
 
-unsafe impl<#[may_dangle] K, #[may_dangle] V> Drop for BTreeMap<K, V> {
+unsafe impl<K, V> Drop for BTreeMap<K, V> {
     fn drop(&mut self) {
         drop(unsafe { ptr::read(self) }.into_iter())
     }

@@ -75,8 +75,6 @@ use crate::alloc::ArenaAllocator;
 ///
 /// let set = BTreeSet::from([1, 2, 3]);
 /// ```
-
-#[cfg_attr(not(test), rustc_diagnostic_item = "BTreeSet")]
 pub struct BTreeSet<T> {
     map: BTreeMap<T, SetValZST>,
 }
