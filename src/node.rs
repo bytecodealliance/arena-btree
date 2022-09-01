@@ -80,9 +80,14 @@ impl<K, V> LeafNode<K, V> {
     fn new(alloc: &mut ArenaAllocator) -> Box<Self> {
         todo!("FITZGEN: need to not return a Box, but need to check callers to see if they rely on auto-drop, which won't work anymore");
         unsafe {
-            let mut leaf = Box::new_uninit_in(alloc);
+            let mut leaf = alloc.box_new_uninit::<Self>();
             LeafNode::init(leaf.as_mut_ptr());
-            leaf.assume_init()
+
+            // This is `Box::assume_init`, but that is unstable.
+            {
+                let raw = Box::into_raw(leaf);
+                unsafe { Box::from_raw(raw as *mut Self) }
+            }
         }
     }
 }
@@ -113,10 +118,15 @@ impl<K, V> InternalNode<K, V> {
     unsafe fn new(alloc: &mut ArenaAllocator) -> Box<Self> {
         todo!("FITZGEN: need to not return a box but also need to make sure callers don't rely on drop");
         unsafe {
-            let mut node = Box::<Self, _>::new_uninit_in(alloc);
+            let mut node = alloc.box_new_uninit::<Self>();
             // We only need to initialize the data; the edges are MaybeUninit.
             LeafNode::init(ptr::addr_of_mut!((*node.as_mut_ptr()).data));
-            node.assume_init()
+
+            // This is `Box::assume_init` but that is unstable.
+            {
+                let raw = Box::into_raw(node);
+                unsafe { Box::from_raw(raw as *mut Self) }
+            }
         }
     }
 }
@@ -399,7 +409,15 @@ impl<'a, K: 'a, V: 'a, Type> NodeRef<marker::Immut<'a>, K, V, Type> {
     pub fn keys(&self) -> &[K] {
         let leaf = self.into_leaf();
         unsafe {
-            MaybeUninit::slice_assume_init_ref(leaf.keys.get_unchecked(..usize::from(leaf.len)))
+            // This is `MaybeUninit::slice_assume_init_ref` but that is unstable.
+            {
+                let slice: &[MaybeUninit<K>] = leaf.keys.get_unchecked(..usize::from(leaf.len));
+                // SAFETY: casting `slice` to a `*const [T]` is safe since the caller guarantees that
+                // `slice` is initialized, and `MaybeUninit` is guaranteed to have the same layout as `T`.
+                // The pointer obtained is valid since it refers to memory owned by `slice` which is a
+                // reference and thus guaranteed to be valid for reads.
+                unsafe { &*(slice as *const [MaybeUninit<K>] as *const [K]) }
+            }
         }
     }
 }
@@ -533,6 +551,14 @@ impl<'a, K: 'a, V: 'a> NodeRef<marker::Mut<'a>, K, V, marker::Internal> {
     }
 }
 
+unsafe fn get_unchecked<'a, T>(xs: *const [T], idx: usize) -> &'a T {
+    (&*xs).get_unchecked(idx)
+}
+
+unsafe fn get_unchecked_mut<'a, T>(xs: *mut [T], idx: usize) -> &'a mut T {
+    (&mut *xs).get_unchecked_mut(idx)
+}
+
 impl<'a, K, V, Type> NodeRef<marker::ValMut<'a>, K, V, Type> {
     /// # Safety
     /// - The node has more than `idx` initialized elements.
@@ -546,8 +572,8 @@ impl<'a, K, V, Type> NodeRef<marker::ValMut<'a>, K, V, Type> {
         // We must coerce to unsized array pointers because of Rust issue #74679.
         let keys: *const [_] = keys;
         let vals: *mut [_] = vals;
-        let key = unsafe { (&*keys.get_unchecked(idx)).assume_init_ref() };
-        let val = unsafe { (&mut *vals.get_unchecked_mut(idx)).assume_init_mut() };
+        let key = unsafe { get_unchecked::<MaybeUninit<K>>(keys, idx).assume_init_ref() };
+        let val = unsafe { get_unchecked_mut(vals, idx).assume_init_mut() };
         (key, val)
     }
 }
@@ -1081,12 +1107,10 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, mark
 
         loop {
             split = match split.left.ascend() {
-                Ok(parent) => {
-                    match parent.insert(split.kv.0, split.kv.1, split.right, alloc) {
-                        None => return (None, val_ptr),
-                        Some(split) => split.forget_node_type(),
-                    }
-                }
+                Ok(parent) => match parent.insert(split.kv.0, split.kv.1, split.right, alloc) {
+                    None => return (None, val_ptr),
+                    Some(split) => split.forget_node_type(),
+                },
                 Err(root) => {
                     return (
                         Some(SplitResult {
