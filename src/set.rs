@@ -1103,21 +1103,11 @@ impl<T: Ord> Extend<T> for BTreeSet<T> {
             self.insert(elem);
         });
     }
-
-    #[inline]
-    fn extend_one(&mut self, elem: T) {
-        self.insert(elem);
-    }
 }
 
 impl<'a, T: 'a + Ord + Copy> Extend<&'a T> for BTreeSet<T> {
     fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
         self.extend(iter.into_iter().cloned());
-    }
-
-    #[inline]
-    fn extend_one(&mut self, &elem: &'a T) {
-        self.insert(elem);
     }
 }
 
