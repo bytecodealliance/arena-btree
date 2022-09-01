@@ -76,7 +76,7 @@ use crate::alloc::{Allocator, Global};
 ///
 /// let set = BTreeSet::from([1, 2, 3]);
 /// ```
-#[stable(feature = "rust1", since = "1.0.0")]
+
 #[cfg_attr(not(test), rustc_diagnostic_item = "BTreeSet")]
 pub struct BTreeSet<
     T,
@@ -85,38 +85,32 @@ pub struct BTreeSet<
     map: BTreeMap<T, SetValZST, A>,
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<T: Hash, A: Allocator + Clone> Hash for BTreeSet<T, A> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.map.hash(state)
     }
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<T: PartialEq, A: Allocator + Clone> PartialEq for BTreeSet<T, A> {
     fn eq(&self, other: &BTreeSet<T, A>) -> bool {
         self.map.eq(&other.map)
     }
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<T: Eq, A: Allocator + Clone> Eq for BTreeSet<T, A> {}
 
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<T: PartialOrd, A: Allocator + Clone> PartialOrd for BTreeSet<T, A> {
     fn partial_cmp(&self, other: &BTreeSet<T, A>) -> Option<Ordering> {
         self.map.partial_cmp(&other.map)
     }
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<T: Ord, A: Allocator + Clone> Ord for BTreeSet<T, A> {
     fn cmp(&self, other: &BTreeSet<T, A>) -> Ordering {
         self.map.cmp(&other.map)
     }
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<T: Clone, A: Allocator + Clone> Clone for BTreeSet<T, A> {
     fn clone(&self) -> Self {
         BTreeSet {
@@ -136,12 +130,11 @@ impl<T: Clone, A: Allocator + Clone> Clone for BTreeSet<T, A> {
 ///
 /// [`iter`]: BTreeSet::iter
 #[must_use = "iterators are lazy and do nothing unless consumed"]
-#[stable(feature = "rust1", since = "1.0.0")]
+
 pub struct Iter<'a, T: 'a> {
     iter: Keys<'a, T, SetValZST>,
 }
 
-#[stable(feature = "collection_debug", since = "1.17.0")]
 impl<T: fmt::Debug> fmt::Debug for Iter<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Iter").field(&self.iter.clone()).finish()
@@ -155,7 +148,7 @@ impl<T: fmt::Debug> fmt::Debug for Iter<'_, T> {
 ///
 /// [`into_iter`]: BTreeSet#method.into_iter
 /// [`IntoIterator`]: core::iter::IntoIterator
-#[stable(feature = "rust1", since = "1.0.0")]
+
 #[derive(Debug)]
 pub struct IntoIter<
     T,
@@ -172,7 +165,7 @@ pub struct IntoIter<
 /// [`range`]: BTreeSet::range
 #[must_use = "iterators are lazy and do nothing unless consumed"]
 #[derive(Debug)]
-#[stable(feature = "btree_range", since = "1.17.0")]
+
 pub struct Range<'a, T: 'a> {
     iter: super::map::Range<'a, T, SetValZST>,
 }
@@ -185,7 +178,7 @@ pub struct Range<'a, T: 'a> {
 /// [`difference`]: BTreeSet::difference
 #[must_use = "this returns the difference as an iterator, \
               without modifying either input set"]
-#[stable(feature = "rust1", since = "1.0.0")]
+
 pub struct Difference<
     'a,
     T: 'a,
@@ -232,7 +225,6 @@ impl<T: Debug, A: Allocator + Clone> Debug for DifferenceInner<'_, T, A> {
     }
 }
 
-#[stable(feature = "collection_debug", since = "1.17.0")]
 impl<T: fmt::Debug, A: Allocator + Clone> fmt::Debug for Difference<'_, T, A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Difference").field(&self.inner).finish()
@@ -247,10 +239,9 @@ impl<T: fmt::Debug, A: Allocator + Clone> fmt::Debug for Difference<'_, T, A> {
 /// [`symmetric_difference`]: BTreeSet::symmetric_difference
 #[must_use = "this returns the difference as an iterator, \
               without modifying either input set"]
-#[stable(feature = "rust1", since = "1.0.0")]
+
 pub struct SymmetricDifference<'a, T: 'a>(MergeIterInner<Iter<'a, T>>);
 
-#[stable(feature = "collection_debug", since = "1.17.0")]
 impl<T: fmt::Debug> fmt::Debug for SymmetricDifference<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("SymmetricDifference").field(&self.0).finish()
@@ -265,7 +256,7 @@ impl<T: fmt::Debug> fmt::Debug for SymmetricDifference<'_, T> {
 /// [`intersection`]: BTreeSet::intersection
 #[must_use = "this returns the intersection as an iterator, \
               without modifying either input set"]
-#[stable(feature = "rust1", since = "1.0.0")]
+
 pub struct Intersection<
     'a,
     T: 'a,
@@ -309,7 +300,6 @@ impl<T: Debug, A: Allocator + Clone> Debug for IntersectionInner<'_, T, A> {
     }
 }
 
-#[stable(feature = "collection_debug", since = "1.17.0")]
 impl<T: Debug, A: Allocator + Clone> Debug for Intersection<'_, T, A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Intersection").field(&self.inner).finish()
@@ -324,10 +314,9 @@ impl<T: Debug, A: Allocator + Clone> Debug for Intersection<'_, T, A> {
 /// [`union`]: BTreeSet::union
 #[must_use = "this returns the union as an iterator, \
               without modifying either input set"]
-#[stable(feature = "rust1", since = "1.0.0")]
+
 pub struct Union<'a, T: 'a>(MergeIterInner<Iter<'a, T>>);
 
-#[stable(feature = "collection_debug", since = "1.17.0")]
 impl<T: fmt::Debug> fmt::Debug for Union<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Union").field(&self.0).finish()
@@ -355,7 +344,7 @@ impl<T> BTreeSet<T> {
     ///
     /// let mut set: BTreeSet<i32> = BTreeSet::new();
     /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
+
     #[rustc_const_unstable(feature = "const_btree_new", issue = "71835")]
     #[must_use]
     pub const fn new() -> BTreeSet<T> {
@@ -413,7 +402,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// }
     /// assert_eq!(Some(&5), set.range(4..).next());
     /// ```
-    #[stable(feature = "btree_range", since = "1.17.0")]
+
     pub fn range<K: ?Sized, R>(&self, range: R) -> Range<'_, T>
     where
         K: Ord,
@@ -445,7 +434,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// let diff: Vec<_> = a.difference(&b).cloned().collect();
     /// assert_eq!(diff, [1]);
     /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
+
     pub fn difference<'a>(&'a self, other: &'a BTreeSet<T, A>) -> Difference<'a, T, A>
     where
         T: Ord,
@@ -513,7 +502,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// let sym_diff: Vec<_> = a.symmetric_difference(&b).cloned().collect();
     /// assert_eq!(sym_diff, [1, 3]);
     /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
+
     pub fn symmetric_difference<'a>(
         &'a self,
         other: &'a BTreeSet<T, A>,
@@ -544,7 +533,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// let intersection: Vec<_> = a.intersection(&b).cloned().collect();
     /// assert_eq!(intersection, [2]);
     /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
+
     pub fn intersection<'a>(&'a self, other: &'a BTreeSet<T, A>) -> Intersection<'a, T, A>
     where
         T: Ord,
@@ -608,7 +597,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// let union: Vec<_> = a.union(&b).cloned().collect();
     /// assert_eq!(union, [1, 2]);
     /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
+
     pub fn union<'a>(&'a self, other: &'a BTreeSet<T, A>) -> Union<'a, T>
     where
         T: Ord,
@@ -628,7 +617,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// v.clear();
     /// assert!(v.is_empty());
     /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
+
     pub fn clear(&mut self)
     where
         A: Clone,
@@ -651,7 +640,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(set.contains(&1), true);
     /// assert_eq!(set.contains(&4), false);
     /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
+
     pub fn contains<Q: ?Sized>(&self, value: &Q) -> bool
     where
         T: Borrow<Q> + Ord,
@@ -676,7 +665,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(set.get(&2), Some(&2));
     /// assert_eq!(set.get(&4), None);
     /// ```
-    #[stable(feature = "set_recovery", since = "1.9.0")]
+
     pub fn get<Q: ?Sized>(&self, value: &Q) -> Option<&T>
     where
         T: Borrow<Q> + Ord,
@@ -703,7 +692,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(a.is_disjoint(&b), false);
     /// ```
     #[must_use]
-    #[stable(feature = "rust1", since = "1.0.0")]
+
     pub fn is_disjoint(&self, other: &BTreeSet<T, A>) -> bool
     where
         T: Ord,
@@ -729,7 +718,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(set.is_subset(&sup), false);
     /// ```
     #[must_use]
-    #[stable(feature = "rust1", since = "1.0.0")]
+
     pub fn is_subset(&self, other: &BTreeSet<T, A>) -> bool
     where
         T: Ord,
@@ -809,7 +798,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(set.is_superset(&sub), true);
     /// ```
     #[must_use]
-    #[stable(feature = "rust1", since = "1.0.0")]
+
     pub fn is_superset(&self, other: &BTreeSet<T, A>) -> bool
     where
         T: Ord,
@@ -945,7 +934,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(set.insert(2), false);
     /// assert_eq!(set.len(), 1);
     /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
+
     pub fn insert(&mut self, value: T) -> bool
     where
         T: Ord,
@@ -968,7 +957,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// set.replace(Vec::with_capacity(10));
     /// assert_eq!(set.get(&[][..]).unwrap().capacity(), 10);
     /// ```
-    #[stable(feature = "set_recovery", since = "1.9.0")]
+
     pub fn replace(&mut self, value: T) -> Option<T>
     where
         T: Ord,
@@ -994,7 +983,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(set.remove(&2), true);
     /// assert_eq!(set.remove(&2), false);
     /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
+
     pub fn remove<Q: ?Sized>(&mut self, value: &Q) -> bool
     where
         T: Borrow<Q> + Ord,
@@ -1019,7 +1008,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(set.take(&2), Some(2));
     /// assert_eq!(set.take(&2), None);
     /// ```
-    #[stable(feature = "set_recovery", since = "1.9.0")]
+
     pub fn take<Q: ?Sized>(&mut self, value: &Q) -> Option<T>
     where
         T: Borrow<Q> + Ord,
@@ -1043,7 +1032,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// set.retain(|&k| k % 2 == 0);
     /// assert!(set.iter().eq([2, 4, 6].iter()));
     /// ```
-    #[stable(feature = "btree_retain", since = "1.53.0")]
+
     pub fn retain<F>(&mut self, mut f: F)
     where
         T: Ord,
@@ -1080,7 +1069,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert!(a.contains(&4));
     /// assert!(a.contains(&5));
     /// ```
-    #[stable(feature = "btree_append", since = "1.11.0")]
+
     pub fn append(&mut self, other: &mut Self)
     where
         T: Ord,
@@ -1118,7 +1107,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert!(b.contains(&17));
     /// assert!(b.contains(&41));
     /// ```
-    #[stable(feature = "btree_split_off", since = "1.11.0")]
+
     pub fn split_off<Q: ?Sized + Ord>(&mut self, value: &Q) -> Self
     where
         T: Borrow<Q> + Ord,
@@ -1196,7 +1185,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(set_iter.next(), Some(&3));
     /// assert_eq!(set_iter.next(), None);
     /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
+
     pub fn iter(&self) -> Iter<'_, T> {
         Iter {
             iter: self.map.keys(),
@@ -1216,7 +1205,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(v.len(), 1);
     /// ```
     #[must_use]
-    #[stable(feature = "rust1", since = "1.0.0")]
     #[rustc_const_unstable(feature = "const_btree_new", issue = "71835")]
     pub const fn len(&self) -> usize {
         self.map.len()
@@ -1235,14 +1223,12 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert!(!v.is_empty());
     /// ```
     #[must_use]
-    #[stable(feature = "rust1", since = "1.0.0")]
     #[rustc_const_unstable(feature = "const_btree_new", issue = "71835")]
     pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<T: Ord> FromIterator<T> for BTreeSet<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> BTreeSet<T> {
         let mut inputs: Vec<_> = iter.into_iter().collect();
@@ -1265,7 +1251,6 @@ impl<T: Ord, A: Allocator + Clone> BTreeSet<T, A> {
     }
 }
 
-#[stable(feature = "std_collections_from_array", since = "1.56.0")]
 impl<T: Ord, const N: usize> From<[T; N]> for BTreeSet<T> {
     /// Converts a `[T; N]` into a `BTreeSet<T>`.
     ///
@@ -1289,7 +1274,6 @@ impl<T: Ord, const N: usize> From<[T; N]> for BTreeSet<T> {
     }
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<T, A: Allocator + Clone> IntoIterator for BTreeSet<T, A> {
     type Item = T;
     type IntoIter = IntoIter<T, A>;
@@ -1313,7 +1297,6 @@ impl<T, A: Allocator + Clone> IntoIterator for BTreeSet<T, A> {
     }
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<'a, T, A: Allocator + Clone> IntoIterator for &'a BTreeSet<T, A> {
     type Item = &'a T;
     type IntoIter = Iter<'a, T>;
@@ -1389,7 +1372,6 @@ impl<T, F, A: Allocator + Clone> FusedIterator for DrainFilter<'_, T, F, A> wher
 {
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<T: Ord, A: Allocator + Clone> Extend<T> for BTreeSet<T, A> {
     #[inline]
     fn extend<Iter: IntoIterator<Item = T>>(&mut self, iter: Iter) {
@@ -1404,7 +1386,6 @@ impl<T: Ord, A: Allocator + Clone> Extend<T> for BTreeSet<T, A> {
     }
 }
 
-#[stable(feature = "extend_ref", since = "1.2.0")]
 impl<'a, T: 'a + Ord + Copy, A: Allocator + Clone> Extend<&'a T> for BTreeSet<T, A> {
     fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
         self.extend(iter.into_iter().cloned());
@@ -1416,7 +1397,6 @@ impl<'a, T: 'a + Ord + Copy, A: Allocator + Clone> Extend<&'a T> for BTreeSet<T,
     }
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<T> Default for BTreeSet<T> {
     /// Creates an empty `BTreeSet`.
     fn default() -> BTreeSet<T> {
@@ -1424,7 +1404,6 @@ impl<T> Default for BTreeSet<T> {
     }
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<T: Ord + Clone, A: Allocator + Clone> Sub<&BTreeSet<T, A>> for &BTreeSet<T, A> {
     type Output = BTreeSet<T, A>;
 
@@ -1449,7 +1428,6 @@ impl<T: Ord + Clone, A: Allocator + Clone> Sub<&BTreeSet<T, A>> for &BTreeSet<T,
     }
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<T: Ord + Clone, A: Allocator + Clone> BitXor<&BTreeSet<T, A>> for &BTreeSet<T, A> {
     type Output = BTreeSet<T, A>;
 
@@ -1474,7 +1452,6 @@ impl<T: Ord + Clone, A: Allocator + Clone> BitXor<&BTreeSet<T, A>> for &BTreeSet
     }
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<T: Ord + Clone, A: Allocator + Clone> BitAnd<&BTreeSet<T, A>> for &BTreeSet<T, A> {
     type Output = BTreeSet<T, A>;
 
@@ -1499,7 +1476,6 @@ impl<T: Ord + Clone, A: Allocator + Clone> BitAnd<&BTreeSet<T, A>> for &BTreeSet
     }
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<T: Ord + Clone, A: Allocator + Clone> BitOr<&BTreeSet<T, A>> for &BTreeSet<T, A> {
     type Output = BTreeSet<T, A>;
 
@@ -1524,14 +1500,12 @@ impl<T: Ord + Clone, A: Allocator + Clone> BitOr<&BTreeSet<T, A>> for &BTreeSet<
     }
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<T: Debug, A: Allocator + Clone> Debug for BTreeSet<T, A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_set().entries(self.iter()).finish()
     }
 }
 
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<T> Clone for Iter<'_, T> {
     fn clone(&self) -> Self {
         Iter {
@@ -1539,7 +1513,7 @@ impl<T> Clone for Iter<'_, T> {
         }
     }
 }
-#[stable(feature = "rust1", since = "1.0.0")]
+
 impl<'a, T> Iterator for Iter<'a, T> {
     type Item = &'a T;
 
@@ -1563,23 +1537,21 @@ impl<'a, T> Iterator for Iter<'a, T> {
         self.next_back()
     }
 }
-#[stable(feature = "rust1", since = "1.0.0")]
+
 impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
     fn next_back(&mut self) -> Option<&'a T> {
         self.iter.next_back()
     }
 }
-#[stable(feature = "rust1", since = "1.0.0")]
+
 impl<T> ExactSizeIterator for Iter<'_, T> {
     fn len(&self) -> usize {
         self.iter.len()
     }
 }
 
-#[stable(feature = "fused", since = "1.26.0")]
 impl<T> FusedIterator for Iter<'_, T> {}
 
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<T, A: Allocator + Clone> Iterator for IntoIter<T, A> {
     type Item = T;
 
@@ -1591,23 +1563,21 @@ impl<T, A: Allocator + Clone> Iterator for IntoIter<T, A> {
         self.iter.size_hint()
     }
 }
-#[stable(feature = "rust1", since = "1.0.0")]
+
 impl<T, A: Allocator + Clone> DoubleEndedIterator for IntoIter<T, A> {
     fn next_back(&mut self) -> Option<T> {
         self.iter.next_back().map(|(k, _)| k)
     }
 }
-#[stable(feature = "rust1", since = "1.0.0")]
+
 impl<T, A: Allocator + Clone> ExactSizeIterator for IntoIter<T, A> {
     fn len(&self) -> usize {
         self.iter.len()
     }
 }
 
-#[stable(feature = "fused", since = "1.26.0")]
 impl<T, A: Allocator + Clone> FusedIterator for IntoIter<T, A> {}
 
-#[stable(feature = "btree_range", since = "1.17.0")]
 impl<T> Clone for Range<'_, T> {
     fn clone(&self) -> Self {
         Range {
@@ -1616,7 +1586,6 @@ impl<T> Clone for Range<'_, T> {
     }
 }
 
-#[stable(feature = "btree_range", since = "1.17.0")]
 impl<'a, T> Iterator for Range<'a, T> {
     type Item = &'a T;
 
@@ -1637,17 +1606,14 @@ impl<'a, T> Iterator for Range<'a, T> {
     }
 }
 
-#[stable(feature = "btree_range", since = "1.17.0")]
 impl<'a, T> DoubleEndedIterator for Range<'a, T> {
     fn next_back(&mut self) -> Option<&'a T> {
         self.iter.next_back().map(|(k, _)| k)
     }
 }
 
-#[stable(feature = "fused", since = "1.26.0")]
 impl<T> FusedIterator for Range<'_, T> {}
 
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<T, A: Allocator + Clone> Clone for Difference<'_, T, A> {
     fn clone(&self) -> Self {
         Difference {
@@ -1671,7 +1637,7 @@ impl<T, A: Allocator + Clone> Clone for Difference<'_, T, A> {
         }
     }
 }
-#[stable(feature = "rust1", since = "1.0.0")]
+
 impl<'a, T: Ord, A: Allocator + Clone> Iterator for Difference<'a, T, A> {
     type Item = &'a T;
 
@@ -1731,16 +1697,14 @@ impl<'a, T: Ord, A: Allocator + Clone> Iterator for Difference<'a, T, A> {
     }
 }
 
-#[stable(feature = "fused", since = "1.26.0")]
 impl<T: Ord, A: Allocator + Clone> FusedIterator for Difference<'_, T, A> {}
 
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<T> Clone for SymmetricDifference<'_, T> {
     fn clone(&self) -> Self {
         SymmetricDifference(self.0.clone())
     }
 }
-#[stable(feature = "rust1", since = "1.0.0")]
+
 impl<'a, T: Ord> Iterator for SymmetricDifference<'a, T> {
     type Item = &'a T;
 
@@ -1766,10 +1730,8 @@ impl<'a, T: Ord> Iterator for SymmetricDifference<'a, T> {
     }
 }
 
-#[stable(feature = "fused", since = "1.26.0")]
 impl<T: Ord> FusedIterator for SymmetricDifference<'_, T> {}
 
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<T, A: Allocator + Clone> Clone for Intersection<'_, T, A> {
     fn clone(&self) -> Self {
         Intersection {
@@ -1790,7 +1752,7 @@ impl<T, A: Allocator + Clone> Clone for Intersection<'_, T, A> {
         }
     }
 }
-#[stable(feature = "rust1", since = "1.0.0")]
+
 impl<'a, T: Ord, A: Allocator + Clone> Iterator for Intersection<'a, T, A> {
     type Item = &'a T;
 
@@ -1834,16 +1796,14 @@ impl<'a, T: Ord, A: Allocator + Clone> Iterator for Intersection<'a, T, A> {
     }
 }
 
-#[stable(feature = "fused", since = "1.26.0")]
 impl<T: Ord, A: Allocator + Clone> FusedIterator for Intersection<'_, T, A> {}
 
-#[stable(feature = "rust1", since = "1.0.0")]
 impl<T> Clone for Union<'_, T> {
     fn clone(&self) -> Self {
         Union(self.0.clone())
     }
 }
-#[stable(feature = "rust1", since = "1.0.0")]
+
 impl<'a, T: Ord> Iterator for Union<'a, T> {
     type Item = &'a T;
 
@@ -1863,7 +1823,6 @@ impl<'a, T: Ord> Iterator for Union<'a, T> {
     }
 }
 
-#[stable(feature = "fused", since = "1.26.0")]
 impl<T: Ord> FusedIterator for Union<'_, T> {}
 
 #[cfg(test)]

@@ -15,7 +15,7 @@ use Entry::*;
 /// This `enum` is constructed from the [`entry`] method on [`BTreeMap`].
 ///
 /// [`entry`]: BTreeMap::entry
-#[stable(feature = "rust1", since = "1.0.0")]
+
 #[cfg_attr(not(test), rustc_diagnostic_item = "BTreeEntry")]
 pub enum Entry<
     'a,
@@ -24,15 +24,12 @@ pub enum Entry<
     #[unstable(feature = "allocator_api", issue = "32838")] A: Allocator + Clone = Global,
 > {
     /// A vacant entry.
-    #[stable(feature = "rust1", since = "1.0.0")]
-    Vacant(#[stable(feature = "rust1", since = "1.0.0")] VacantEntry<'a, K, V, A>),
+    Vacant(VacantEntry<'a, K, V, A>),
 
     /// An occupied entry.
-    #[stable(feature = "rust1", since = "1.0.0")]
-    Occupied(#[stable(feature = "rust1", since = "1.0.0")] OccupiedEntry<'a, K, V, A>),
+    Occupied(OccupiedEntry<'a, K, V, A>),
 }
 
-#[stable(feature = "debug_btree_map", since = "1.12.0")]
 impl<K: Debug + Ord, V: Debug, A: Allocator + Clone> Debug for Entry<'_, K, V, A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
@@ -44,7 +41,7 @@ impl<K: Debug + Ord, V: Debug, A: Allocator + Clone> Debug for Entry<'_, K, V, A
 
 /// A view into a vacant entry in a `BTreeMap`.
 /// It is part of the [`Entry`] enum.
-#[stable(feature = "rust1", since = "1.0.0")]
+
 pub struct VacantEntry<
     'a,
     K,
@@ -63,7 +60,6 @@ pub struct VacantEntry<
     pub(super) _marker: PhantomData<&'a mut (K, V)>,
 }
 
-#[stable(feature = "debug_btree_map", since = "1.12.0")]
 impl<K: Debug + Ord, V, A: Allocator + Clone> Debug for VacantEntry<'_, K, V, A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("VacantEntry").field(self.key()).finish()
@@ -72,7 +68,7 @@ impl<K: Debug + Ord, V, A: Allocator + Clone> Debug for VacantEntry<'_, K, V, A>
 
 /// A view into an occupied entry in a `BTreeMap`.
 /// It is part of the [`Entry`] enum.
-#[stable(feature = "rust1", since = "1.0.0")]
+
 pub struct OccupiedEntry<
     'a,
     K,
@@ -89,7 +85,6 @@ pub struct OccupiedEntry<
     pub(super) _marker: PhantomData<&'a mut (K, V)>,
 }
 
-#[stable(feature = "debug_btree_map", since = "1.12.0")]
 impl<K: Debug + Ord, V: Debug, A: Allocator + Clone> Debug for OccupiedEntry<'_, K, V, A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OccupiedEntry")
@@ -161,7 +156,7 @@ impl<'a, K: Ord, V, A: Allocator + Clone> Entry<'a, K, V, A> {
     ///
     /// assert_eq!(map["poneyland"], 12);
     /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
+
     pub fn or_insert(self, default: V) -> &'a mut V {
         match self {
             Occupied(entry) => entry.into_mut(),
@@ -184,7 +179,7 @@ impl<'a, K: Ord, V, A: Allocator + Clone> Entry<'a, K, V, A> {
     ///
     /// assert_eq!(map["poneyland"], "hoho".to_string());
     /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
+
     pub fn or_insert_with<F: FnOnce() -> V>(self, default: F) -> &'a mut V {
         match self {
             Occupied(entry) => entry.into_mut(),
@@ -211,7 +206,7 @@ impl<'a, K: Ord, V, A: Allocator + Clone> Entry<'a, K, V, A> {
     /// assert_eq!(map["poneyland"], 9);
     /// ```
     #[inline]
-    #[stable(feature = "or_insert_with_key", since = "1.50.0")]
+
     pub fn or_insert_with_key<F: FnOnce(&K) -> V>(self, default: F) -> &'a mut V {
         match self {
             Occupied(entry) => entry.into_mut(),
@@ -232,7 +227,7 @@ impl<'a, K: Ord, V, A: Allocator + Clone> Entry<'a, K, V, A> {
     /// let mut map: BTreeMap<&str, usize> = BTreeMap::new();
     /// assert_eq!(map.entry("poneyland").key(), &"poneyland");
     /// ```
-    #[stable(feature = "map_entry_keys", since = "1.10.0")]
+
     pub fn key(&self) -> &K {
         match *self {
             Occupied(ref entry) => entry.key(),
@@ -260,7 +255,7 @@ impl<'a, K: Ord, V, A: Allocator + Clone> Entry<'a, K, V, A> {
     ///    .or_insert(42);
     /// assert_eq!(map["poneyland"], 43);
     /// ```
-    #[stable(feature = "entry_and_modify", since = "1.26.0")]
+
     pub fn and_modify<F>(self, f: F) -> Self
     where
         F: FnOnce(&mut V),
@@ -276,7 +271,6 @@ impl<'a, K: Ord, V, A: Allocator + Clone> Entry<'a, K, V, A> {
 }
 
 impl<'a, K: Ord, V: Default, A: Allocator + Clone> Entry<'a, K, V, A> {
-    #[stable(feature = "entry_or_default", since = "1.28.0")]
     /// Ensures a value is in the entry by inserting the default value if empty,
     /// and returns a mutable reference to the value in the entry.
     ///
@@ -310,7 +304,7 @@ impl<'a, K: Ord, V, A: Allocator + Clone> VacantEntry<'a, K, V, A> {
     /// let mut map: BTreeMap<&str, usize> = BTreeMap::new();
     /// assert_eq!(map.entry("poneyland").key(), &"poneyland");
     /// ```
-    #[stable(feature = "map_entry_keys", since = "1.10.0")]
+
     pub fn key(&self) -> &K {
         &self.key
     }
@@ -329,7 +323,7 @@ impl<'a, K: Ord, V, A: Allocator + Clone> VacantEntry<'a, K, V, A> {
     ///     v.into_key();
     /// }
     /// ```
-    #[stable(feature = "map_entry_recover_keys2", since = "1.12.0")]
+
     pub fn into_key(self) -> K {
         self.key
     }
@@ -350,7 +344,7 @@ impl<'a, K: Ord, V, A: Allocator + Clone> VacantEntry<'a, K, V, A> {
     /// }
     /// assert_eq!(map["poneyland"], 37);
     /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
+
     pub fn insert(self, value: V) -> &'a mut V {
         let out_ptr = match self.handle {
             None => {
@@ -401,7 +395,7 @@ impl<'a, K: Ord, V, A: Allocator + Clone> OccupiedEntry<'a, K, V, A> {
     /// assert_eq!(map.entry("poneyland").key(), &"poneyland");
     /// ```
     #[must_use]
-    #[stable(feature = "map_entry_keys", since = "1.10.0")]
+
     pub fn key(&self) -> &K {
         self.handle.reborrow().into_kv().0
     }
@@ -425,7 +419,7 @@ impl<'a, K: Ord, V, A: Allocator + Clone> OccupiedEntry<'a, K, V, A> {
     /// // If now try to get the value, it will panic:
     /// // println!("{}", map["poneyland"]);
     /// ```
-    #[stable(feature = "map_entry_recover_keys2", since = "1.12.0")]
+
     pub fn remove_entry(self) -> (K, V) {
         self.remove_kv()
     }
@@ -446,7 +440,7 @@ impl<'a, K: Ord, V, A: Allocator + Clone> OccupiedEntry<'a, K, V, A> {
     /// }
     /// ```
     #[must_use]
-    #[stable(feature = "rust1", since = "1.0.0")]
+
     pub fn get(&self) -> &V {
         self.handle.reborrow().into_kv().1
     }
@@ -477,7 +471,7 @@ impl<'a, K: Ord, V, A: Allocator + Clone> OccupiedEntry<'a, K, V, A> {
     /// }
     /// assert_eq!(map["poneyland"], 24);
     /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
+
     pub fn get_mut(&mut self) -> &mut V {
         self.handle.kv_mut().1
     }
@@ -504,7 +498,7 @@ impl<'a, K: Ord, V, A: Allocator + Clone> OccupiedEntry<'a, K, V, A> {
     /// assert_eq!(map["poneyland"], 22);
     /// ```
     #[must_use = "`self` will be dropped if the result is not used"]
-    #[stable(feature = "rust1", since = "1.0.0")]
+
     pub fn into_mut(self) -> &'a mut V {
         self.handle.into_val_mut()
     }
@@ -526,7 +520,7 @@ impl<'a, K: Ord, V, A: Allocator + Clone> OccupiedEntry<'a, K, V, A> {
     /// }
     /// assert_eq!(map["poneyland"], 15);
     /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
+
     pub fn insert(&mut self, value: V) -> V {
         mem::replace(self.get_mut(), value)
     }
@@ -548,7 +542,7 @@ impl<'a, K: Ord, V, A: Allocator + Clone> OccupiedEntry<'a, K, V, A> {
     /// // If we try to get "poneyland"'s value, it'll panic:
     /// // println!("{}", map["poneyland"]);
     /// ```
-    #[stable(feature = "rust1", since = "1.0.0")]
+
     pub fn remove(self) -> V {
         self.remove_kv().1
     }
