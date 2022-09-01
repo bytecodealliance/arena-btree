@@ -1069,7 +1069,10 @@ impl<T: Ord> FromIterator<T> for BTreeSet<T> {
 }
 
 impl<T: Ord> BTreeSet<T> {
-    fn from_sorted_iter<I: Iterator<Item = T>>(iter: I, alloc: ArenaAllocator) -> BTreeSet<T> {
+    fn from_sorted_iter<I: Iterator<Item = T>>(
+        iter: I,
+        alloc: ArenaAllocator<T, SetValZST>,
+    ) -> BTreeSet<T> {
         let iter = iter.map(|k| (k, SetValZST::default()));
         let map = BTreeMap::bulk_build_from_sorted_iter(iter, alloc);
         BTreeSet { map }
@@ -1140,7 +1143,7 @@ where
     pred: F,
     inner: super::map::DrainFilterInner<'a, T, SetValZST>,
     /// The BTreeMap will outlive this IntoIter so we don't care about drop order for `alloc`.
-    alloc: &'a mut ArenaAllocator,
+    alloc: &'a mut ArenaAllocator<T, SetValZST>,
 }
 
 impl<T, F> Drop for DrainFilter<'_, T, F>

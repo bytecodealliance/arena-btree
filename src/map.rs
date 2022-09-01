@@ -168,7 +168,7 @@ pub struct BTreeMap<K, V> {
     root: Option<Root<K, V>>,
     length: usize,
     /// `ManuallyDrop` to control drop order (needs to be dropped after all the nodes).
-    pub(super) alloc: ManuallyDrop<ArenaAllocator>,
+    pub(super) alloc: ManuallyDrop<ArenaAllocator<K, V>>,
     // For dropck; the `Box` avoids making the `Unpin` impl more strict than before
     _marker: PhantomData<Box<(K, V)>>,
 }
@@ -195,7 +195,7 @@ impl<K: Clone, V: Clone> Clone for BTreeMap<K, V> {
     fn clone(&self) -> BTreeMap<K, V> {
         fn clone_subtree<'a, K: Clone, V: Clone>(
             node: NodeRef<marker::Immut<'a>, K, V, marker::LeafOrInternal>,
-            mut alloc: ArenaAllocator,
+            mut alloc: ArenaAllocator<K, V>,
         ) -> BTreeMap<K, V>
         where
             K: 'a,
@@ -393,7 +393,7 @@ pub struct IntoIter<K, V> {
     length: usize,
 
     // Must be last, so it is dropped last.
-    alloc: ArenaAllocator,
+    alloc: ArenaAllocator<K, V>,
 }
 
 impl<K, V> IntoIter<K, V> {
@@ -892,7 +892,9 @@ impl<K, V> BTreeMap<K, V> {
         DrainFilter { pred, inner, alloc }
     }
 
-    pub(super) fn drain_filter_inner(&mut self) -> (DrainFilterInner<'_, K, V>, &mut ArenaAllocator)
+    pub(super) fn drain_filter_inner(
+        &mut self,
+    ) -> (DrainFilterInner<'_, K, V>, &mut ArenaAllocator<K, V>)
     where
         K: Ord,
     {
@@ -1214,7 +1216,7 @@ impl<K, V> BTreeMap<K, V> {
     }
 
     /// Makes a `BTreeMap` from a sorted iterator.
-    pub(crate) fn bulk_build_from_sorted_iter<I>(iter: I, mut alloc: ArenaAllocator) -> Self
+    pub(crate) fn bulk_build_from_sorted_iter<I>(iter: I, mut alloc: ArenaAllocator<K, V>) -> Self
     where
         K: Ord,
         I: IntoIterator<Item = (K, V)>,
@@ -1567,7 +1569,7 @@ where
 {
     pred: F,
     inner: DrainFilterInner<'a, K, V>,
-    alloc: &'a mut ArenaAllocator,
+    alloc: &'a mut ArenaAllocator<K, V>,
 }
 /// Most of the implementation of DrainFilter are generic over the type
 /// of the predicate, thus also serving for BTreeSet::DrainFilter.
@@ -1628,7 +1630,11 @@ impl<'a, K, V> DrainFilterInner<'a, K, V> {
     }
 
     /// Implementation of a typical `DrainFilter::next` method, given the predicate.
-    pub(super) fn next<F>(&mut self, pred: &mut F, alloc: &mut ArenaAllocator) -> Option<(K, V)>
+    pub(super) fn next<F>(
+        &mut self,
+        pred: &mut F,
+        alloc: &mut ArenaAllocator<K, V>,
+    ) -> Option<(K, V)>
     where
         F: FnMut(&K, &mut V) -> bool,
     {

@@ -42,7 +42,7 @@ pub struct VacantEntry<'a, K, V> {
     pub(super) dormant_map: DormantMutRef<'a, BTreeMap<K, V>>,
 
     /// The BTreeMap will outlive this IntoIter so we don't care about drop order for `alloc`.
-    pub(super) alloc: &'a mut ArenaAllocator,
+    pub(super) alloc: &'a mut ArenaAllocator<K, V>,
 
     // Be invariant in `K` and `V`
     pub(super) _marker: PhantomData<&'a mut (K, V)>,
@@ -62,7 +62,7 @@ pub struct OccupiedEntry<'a, K, V> {
     pub(super) dormant_map: DormantMutRef<'a, BTreeMap<K, V>>,
 
     /// The BTreeMap will outlive this IntoIter so we don't care about drop order for `alloc`.
-    pub(super) alloc: &'a mut ArenaAllocator,
+    pub(super) alloc: &'a mut ArenaAllocator<K, V>,
 
     // Be invariant in `K` and `V`
     pub(super) _marker: PhantomData<&'a mut (K, V)>,

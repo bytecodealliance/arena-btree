@@ -20,7 +20,7 @@ impl<K, V> Root<K, V> {
         left: I,
         right: I,
         length: &mut usize,
-        alloc: &mut ArenaAllocator,
+        alloc: &mut ArenaAllocator<K, V>,
     ) where
         K: Ord,
         I: Iterator<Item = (K, V)> + FusedIterator,
@@ -35,8 +35,12 @@ impl<K, V> Root<K, V> {
     /// Pushes all key-value pairs to the end of the tree, incrementing a
     /// `length` variable along the way. The latter makes it easier for the
     /// caller to avoid a leak when the iterator panicks.
-    pub(crate) fn bulk_push<I>(&mut self, iter: I, length: &mut usize, alloc: &mut ArenaAllocator)
-    where
+    pub(crate) fn bulk_push<I>(
+        &mut self,
+        iter: I,
+        length: &mut usize,
+        alloc: &mut ArenaAllocator<K, V>,
+    ) where
         I: Iterator<Item = (K, V)>,
     {
         let mut cur_node = self.borrow_mut().last_leaf_edge().into_node();
