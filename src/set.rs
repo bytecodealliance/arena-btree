@@ -78,36 +78,36 @@ use crate::alloc::ArenaAllocator;
 
 #[cfg_attr(not(test), rustc_diagnostic_item = "BTreeSet")]
 pub struct BTreeSet<T> {
-    map: BTreeMap<T, SetValZST, A>,
+    map: BTreeMap<T, SetValZST>,
 }
 
-impl<T: Hash, A: Allocator + Clone> Hash for BTreeSet<T, A> {
+impl<T: Hash> Hash for BTreeSet<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.map.hash(state)
     }
 }
 
-impl<T: PartialEq, A: Allocator + Clone> PartialEq for BTreeSet<T, A> {
-    fn eq(&self, other: &BTreeSet<T, A>) -> bool {
+impl<T: PartialEq> PartialEq for BTreeSet<T> {
+    fn eq(&self, other: &BTreeSet<T>) -> bool {
         self.map.eq(&other.map)
     }
 }
 
-impl<T: Eq, A: Allocator + Clone> Eq for BTreeSet<T, A> {}
+impl<T: Eq> Eq for BTreeSet<T> {}
 
-impl<T: PartialOrd, A: Allocator + Clone> PartialOrd for BTreeSet<T, A> {
-    fn partial_cmp(&self, other: &BTreeSet<T, A>) -> Option<Ordering> {
+impl<T: PartialOrd> PartialOrd for BTreeSet<T> {
+    fn partial_cmp(&self, other: &BTreeSet<T>) -> Option<Ordering> {
         self.map.partial_cmp(&other.map)
     }
 }
 
-impl<T: Ord, A: Allocator + Clone> Ord for BTreeSet<T, A> {
-    fn cmp(&self, other: &BTreeSet<T, A>) -> Ordering {
+impl<T: Ord> Ord for BTreeSet<T> {
+    fn cmp(&self, other: &BTreeSet<T>) -> Ordering {
         self.map.cmp(&other.map)
     }
 }
 
-impl<T: Clone, A: Allocator + Clone> Clone for BTreeSet<T, A> {
+impl<T: Clone> Clone for BTreeSet<T> {
     fn clone(&self) -> Self {
         BTreeSet {
             map: self.map.clone(),
@@ -147,7 +147,7 @@ impl<T: fmt::Debug> fmt::Debug for Iter<'_, T> {
 
 #[derive(Debug)]
 pub struct IntoIter<T> {
-    iter: super::map::IntoIter<T, SetValZST, A>,
+    iter: super::map::IntoIter<T, SetValZST>,
 }
 
 /// An iterator over a sub-range of items in a `BTreeSet`.
@@ -173,9 +173,9 @@ pub struct Range<'a, T: 'a> {
               without modifying either input set"]
 
 pub struct Difference<'a, T: 'a> {
-    inner: DifferenceInner<'a, T, A>,
+    inner: DifferenceInner<'a, T>,
 }
-enum DifferenceInner<'a, T: 'a, A: Allocator + Clone> {
+enum DifferenceInner<'a, T: 'a> {
     Stitch {
         // iterate all of `self` and some of `other`, spotting matches along the way
         self_iter: Iter<'a, T>,
@@ -184,13 +184,13 @@ enum DifferenceInner<'a, T: 'a, A: Allocator + Clone> {
     Search {
         // iterate `self`, look up in `other`
         self_iter: Iter<'a, T>,
-        other_set: &'a BTreeSet<T, A>,
+        other_set: &'a BTreeSet<T>,
     },
     Iterate(Iter<'a, T>), // simply produce all elements in `self`
 }
 
 // Explicit Debug impl necessary because of issue #26925
-impl<T: Debug, A: Allocator + Clone> Debug for DifferenceInner<'_, T, A> {
+impl<T: Debug> Debug for DifferenceInner<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DifferenceInner::Stitch {
@@ -214,7 +214,7 @@ impl<T: Debug, A: Allocator + Clone> Debug for DifferenceInner<'_, T, A> {
     }
 }
 
-impl<T: fmt::Debug, A: Allocator + Clone> fmt::Debug for Difference<'_, T, A> {
+impl<T: fmt::Debug> fmt::Debug for Difference<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Difference").field(&self.inner).finish()
     }
@@ -247,9 +247,9 @@ impl<T: fmt::Debug> fmt::Debug for SymmetricDifference<'_, T> {
               without modifying either input set"]
 
 pub struct Intersection<'a, T: 'a> {
-    inner: IntersectionInner<'a, T, A>,
+    inner: IntersectionInner<'a, T>,
 }
-enum IntersectionInner<'a, T: 'a, A: Allocator + Clone> {
+enum IntersectionInner<'a, T: 'a> {
     Stitch {
         // iterate similarly sized sets jointly, spotting matches along the way
         a: Iter<'a, T>,
@@ -258,13 +258,13 @@ enum IntersectionInner<'a, T: 'a, A: Allocator + Clone> {
     Search {
         // iterate a small set, look up in the large set
         small_iter: Iter<'a, T>,
-        large_set: &'a BTreeSet<T, A>,
+        large_set: &'a BTreeSet<T>,
     },
     Answer(Option<&'a T>), // return a specific element or emptiness
 }
 
 // Explicit Debug impl necessary because of issue #26925
-impl<T: Debug, A: Allocator + Clone> Debug for IntersectionInner<'_, T, A> {
+impl<T: Debug> Debug for IntersectionInner<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             IntersectionInner::Stitch { a, b } => f
@@ -285,7 +285,7 @@ impl<T: Debug, A: Allocator + Clone> Debug for IntersectionInner<'_, T, A> {
     }
 }
 
-impl<T: Debug, A: Allocator + Clone> Debug for Intersection<'_, T, A> {
+impl<T: Debug> Debug for Intersection<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Intersection").field(&self.inner).finish()
     }
@@ -338,7 +338,7 @@ impl<T> BTreeSet<T> {
     }
 }
 
-impl<T, A: Allocator + Clone> BTreeSet<T, A> {
+impl<T> BTreeSet<T> {
     /// Constructs a double-ended iterator over a sub-range of elements in the set.
     /// The simplest way is to use the range syntax `min..max`, thus `range(min..max)` will
     /// yield elements from min (inclusive) to max (exclusive).
@@ -397,7 +397,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// let diff: Vec<_> = a.difference(&b).cloned().collect();
     /// assert_eq!(diff, [1]);
     /// ```
-    pub fn difference<'a>(&'a self, other: &'a BTreeSet<T, A>) -> Difference<'a, T, A>
+    pub fn difference<'a>(&'a self, other: &'a BTreeSet<T>) -> Difference<'a, T>
     where
         T: Ord,
     {
@@ -464,10 +464,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// let sym_diff: Vec<_> = a.symmetric_difference(&b).cloned().collect();
     /// assert_eq!(sym_diff, [1, 3]);
     /// ```
-    pub fn symmetric_difference<'a>(
-        &'a self,
-        other: &'a BTreeSet<T, A>,
-    ) -> SymmetricDifference<'a, T>
+    pub fn symmetric_difference<'a>(&'a self, other: &'a BTreeSet<T>) -> SymmetricDifference<'a, T>
     where
         T: Ord,
     {
@@ -494,7 +491,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// let intersection: Vec<_> = a.intersection(&b).cloned().collect();
     /// assert_eq!(intersection, [2]);
     /// ```
-    pub fn intersection<'a>(&'a self, other: &'a BTreeSet<T, A>) -> Intersection<'a, T, A>
+    pub fn intersection<'a>(&'a self, other: &'a BTreeSet<T>) -> Intersection<'a, T>
     where
         T: Ord,
     {
@@ -557,7 +554,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// let union: Vec<_> = a.union(&b).cloned().collect();
     /// assert_eq!(union, [1, 2]);
     /// ```
-    pub fn union<'a>(&'a self, other: &'a BTreeSet<T, A>) -> Union<'a, T>
+    pub fn union<'a>(&'a self, other: &'a BTreeSet<T>) -> Union<'a, T>
     where
         T: Ord,
     {
@@ -576,10 +573,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// v.clear();
     /// assert!(v.is_empty());
     /// ```
-    pub fn clear(&mut self)
-    where
-        A: Clone,
-    {
+    pub fn clear(&mut self) {
         self.map.clear()
     }
 
@@ -648,7 +642,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(a.is_disjoint(&b), false);
     /// ```
     #[must_use]
-    pub fn is_disjoint(&self, other: &BTreeSet<T, A>) -> bool
+    pub fn is_disjoint(&self, other: &BTreeSet<T>) -> bool
     where
         T: Ord,
     {
@@ -673,7 +667,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(set.is_subset(&sup), false);
     /// ```
     #[must_use]
-    pub fn is_subset(&self, other: &BTreeSet<T, A>) -> bool
+    pub fn is_subset(&self, other: &BTreeSet<T>) -> bool
     where
         T: Ord,
     {
@@ -752,7 +746,7 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(set.is_superset(&sub), true);
     /// ```
     #[must_use]
-    pub fn is_superset(&self, other: &BTreeSet<T, A>) -> bool
+    pub fn is_superset(&self, other: &BTreeSet<T>) -> bool
     where
         T: Ord,
     {
@@ -916,7 +910,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     pub fn append(&mut self, other: &mut Self)
     where
         T: Ord,
-        A: Clone,
     {
         self.map.append(&mut other.map);
     }
@@ -953,7 +946,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     pub fn split_off<Q: ?Sized + Ord>(&mut self, value: &Q) -> Self
     where
         T: Borrow<Q> + Ord,
-        A: Clone,
     {
         BTreeSet {
             map: self.map.split_off(value),
@@ -1043,8 +1035,8 @@ impl<T: Ord> FromIterator<T> for BTreeSet<T> {
     }
 }
 
-impl<T: Ord, A: Allocator + Clone> BTreeSet<T, A> {
-    fn from_sorted_iter<I: Iterator<Item = T>>(iter: I, alloc: A) -> BTreeSet<T, A> {
+impl<T: Ord> BTreeSet<T> {
+    fn from_sorted_iter<I: Iterator<Item = T>>(iter: I, alloc: A) -> BTreeSet<T> {
         let iter = iter.map(|k| (k, SetValZST::default()));
         let map = BTreeMap::bulk_build_from_sorted_iter(iter, alloc);
         BTreeSet { map }
@@ -1074,9 +1066,9 @@ impl<T: Ord, const N: usize> From<[T; N]> for BTreeSet<T> {
     }
 }
 
-impl<T, A: Allocator + Clone> IntoIterator for BTreeSet<T, A> {
+impl<T> IntoIterator for BTreeSet<T> {
     type Item = T;
-    type IntoIter = IntoIter<T, A>;
+    type IntoIter = IntoIter<T>;
 
     /// Gets an iterator for moving out the `BTreeSet`'s contents.
     ///
@@ -1090,14 +1082,14 @@ impl<T, A: Allocator + Clone> IntoIterator for BTreeSet<T, A> {
     /// let v: Vec<_> = set.into_iter().collect();
     /// assert_eq!(v, [1, 2, 3, 4]);
     /// ```
-    fn into_iter(self) -> IntoIter<T, A> {
+    fn into_iter(self) -> IntoIter<T> {
         IntoIter {
             iter: self.map.into_iter(),
         }
     }
 }
 
-impl<'a, T, A: Allocator + Clone> IntoIterator for &'a BTreeSet<T, A> {
+impl<'a, T> IntoIterator for &'a BTreeSet<T> {
     type Item = &'a T;
     type IntoIter = Iter<'a, T>;
 
@@ -1106,7 +1098,7 @@ impl<'a, T, A: Allocator + Clone> IntoIterator for &'a BTreeSet<T, A> {
     }
 }
 
-impl<T: Ord, A: Allocator + Clone> Extend<T> for BTreeSet<T, A> {
+impl<T: Ord> Extend<T> for BTreeSet<T> {
     #[inline]
     fn extend<Iter: IntoIterator<Item = T>>(&mut self, iter: Iter) {
         iter.into_iter().for_each(move |elem| {
@@ -1120,7 +1112,7 @@ impl<T: Ord, A: Allocator + Clone> Extend<T> for BTreeSet<T, A> {
     }
 }
 
-impl<'a, T: 'a + Ord + Copy, A: Allocator + Clone> Extend<&'a T> for BTreeSet<T, A> {
+impl<'a, T: 'a + Ord + Copy> Extend<&'a T> for BTreeSet<T> {
     fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
         self.extend(iter.into_iter().cloned());
     }
@@ -1138,8 +1130,8 @@ impl<T> Default for BTreeSet<T> {
     }
 }
 
-impl<T: Ord + Clone, A: Allocator + Clone> Sub<&BTreeSet<T, A>> for &BTreeSet<T, A> {
-    type Output = BTreeSet<T, A>;
+impl<T: Ord + Clone> Sub<&BTreeSet<T>> for &BTreeSet<T> {
+    type Output = BTreeSet<T>;
 
     /// Returns the difference of `self` and `rhs` as a new `BTreeSet<T>`.
     ///
@@ -1154,7 +1146,7 @@ impl<T: Ord + Clone, A: Allocator + Clone> Sub<&BTreeSet<T, A>> for &BTreeSet<T,
     /// let result = &a - &b;
     /// assert_eq!(result, BTreeSet::from([1, 2]));
     /// ```
-    fn sub(self, rhs: &BTreeSet<T, A>) -> BTreeSet<T, A> {
+    fn sub(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
         BTreeSet::from_sorted_iter(
             self.difference(rhs).cloned(),
             ManuallyDrop::into_inner(self.map.alloc.clone()),
@@ -1162,8 +1154,8 @@ impl<T: Ord + Clone, A: Allocator + Clone> Sub<&BTreeSet<T, A>> for &BTreeSet<T,
     }
 }
 
-impl<T: Ord + Clone, A: Allocator + Clone> BitXor<&BTreeSet<T, A>> for &BTreeSet<T, A> {
-    type Output = BTreeSet<T, A>;
+impl<T: Ord + Clone> BitXor<&BTreeSet<T>> for &BTreeSet<T> {
+    type Output = BTreeSet<T>;
 
     /// Returns the symmetric difference of `self` and `rhs` as a new `BTreeSet<T>`.
     ///
@@ -1178,7 +1170,7 @@ impl<T: Ord + Clone, A: Allocator + Clone> BitXor<&BTreeSet<T, A>> for &BTreeSet
     /// let result = &a ^ &b;
     /// assert_eq!(result, BTreeSet::from([1, 4]));
     /// ```
-    fn bitxor(self, rhs: &BTreeSet<T, A>) -> BTreeSet<T, A> {
+    fn bitxor(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
         BTreeSet::from_sorted_iter(
             self.symmetric_difference(rhs).cloned(),
             ManuallyDrop::into_inner(self.map.alloc.clone()),
@@ -1186,8 +1178,8 @@ impl<T: Ord + Clone, A: Allocator + Clone> BitXor<&BTreeSet<T, A>> for &BTreeSet
     }
 }
 
-impl<T: Ord + Clone, A: Allocator + Clone> BitAnd<&BTreeSet<T, A>> for &BTreeSet<T, A> {
-    type Output = BTreeSet<T, A>;
+impl<T: Ord + Clone> BitAnd<&BTreeSet<T>> for &BTreeSet<T> {
+    type Output = BTreeSet<T>;
 
     /// Returns the intersection of `self` and `rhs` as a new `BTreeSet<T>`.
     ///
@@ -1202,7 +1194,7 @@ impl<T: Ord + Clone, A: Allocator + Clone> BitAnd<&BTreeSet<T, A>> for &BTreeSet
     /// let result = &a & &b;
     /// assert_eq!(result, BTreeSet::from([2, 3]));
     /// ```
-    fn bitand(self, rhs: &BTreeSet<T, A>) -> BTreeSet<T, A> {
+    fn bitand(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
         BTreeSet::from_sorted_iter(
             self.intersection(rhs).cloned(),
             ManuallyDrop::into_inner(self.map.alloc.clone()),
@@ -1210,8 +1202,8 @@ impl<T: Ord + Clone, A: Allocator + Clone> BitAnd<&BTreeSet<T, A>> for &BTreeSet
     }
 }
 
-impl<T: Ord + Clone, A: Allocator + Clone> BitOr<&BTreeSet<T, A>> for &BTreeSet<T, A> {
-    type Output = BTreeSet<T, A>;
+impl<T: Ord + Clone> BitOr<&BTreeSet<T>> for &BTreeSet<T> {
+    type Output = BTreeSet<T>;
 
     /// Returns the union of `self` and `rhs` as a new `BTreeSet<T>`.
     ///
@@ -1226,7 +1218,7 @@ impl<T: Ord + Clone, A: Allocator + Clone> BitOr<&BTreeSet<T, A>> for &BTreeSet<
     /// let result = &a | &b;
     /// assert_eq!(result, BTreeSet::from([1, 2, 3, 4, 5]));
     /// ```
-    fn bitor(self, rhs: &BTreeSet<T, A>) -> BTreeSet<T, A> {
+    fn bitor(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
         BTreeSet::from_sorted_iter(
             self.union(rhs).cloned(),
             ManuallyDrop::into_inner(self.map.alloc.clone()),
@@ -1234,7 +1226,7 @@ impl<T: Ord + Clone, A: Allocator + Clone> BitOr<&BTreeSet<T, A>> for &BTreeSet<
     }
 }
 
-impl<T: Debug, A: Allocator + Clone> Debug for BTreeSet<T, A> {
+impl<T: Debug> Debug for BTreeSet<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_set().entries(self.iter()).finish()
     }
@@ -1286,7 +1278,7 @@ impl<T> ExactSizeIterator for Iter<'_, T> {
 
 impl<T> FusedIterator for Iter<'_, T> {}
 
-impl<T, A: Allocator + Clone> Iterator for IntoIter<T, A> {
+impl<T> Iterator for IntoIter<T> {
     type Item = T;
 
     fn next(&mut self) -> Option<T> {
@@ -1298,19 +1290,19 @@ impl<T, A: Allocator + Clone> Iterator for IntoIter<T, A> {
     }
 }
 
-impl<T, A: Allocator + Clone> DoubleEndedIterator for IntoIter<T, A> {
+impl<T> DoubleEndedIterator for IntoIter<T> {
     fn next_back(&mut self) -> Option<T> {
         self.iter.next_back().map(|(k, _)| k)
     }
 }
 
-impl<T, A: Allocator + Clone> ExactSizeIterator for IntoIter<T, A> {
+impl<T> ExactSizeIterator for IntoIter<T> {
     fn len(&self) -> usize {
         self.iter.len()
     }
 }
 
-impl<T, A: Allocator + Clone> FusedIterator for IntoIter<T, A> {}
+impl<T> FusedIterator for IntoIter<T> {}
 
 impl<T> Clone for Range<'_, T> {
     fn clone(&self) -> Self {
@@ -1348,7 +1340,7 @@ impl<'a, T> DoubleEndedIterator for Range<'a, T> {
 
 impl<T> FusedIterator for Range<'_, T> {}
 
-impl<T, A: Allocator + Clone> Clone for Difference<'_, T, A> {
+impl<T> Clone for Difference<'_, T> {
     fn clone(&self) -> Self {
         Difference {
             inner: match &self.inner {
@@ -1372,7 +1364,7 @@ impl<T, A: Allocator + Clone> Clone for Difference<'_, T, A> {
     }
 }
 
-impl<'a, T: Ord, A: Allocator + Clone> Iterator for Difference<'a, T, A> {
+impl<'a, T: Ord> Iterator for Difference<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<&'a T> {
@@ -1431,7 +1423,7 @@ impl<'a, T: Ord, A: Allocator + Clone> Iterator for Difference<'a, T, A> {
     }
 }
 
-impl<T: Ord, A: Allocator + Clone> FusedIterator for Difference<'_, T, A> {}
+impl<T: Ord> FusedIterator for Difference<'_, T> {}
 
 impl<T> Clone for SymmetricDifference<'_, T> {
     fn clone(&self) -> Self {
@@ -1466,7 +1458,7 @@ impl<'a, T: Ord> Iterator for SymmetricDifference<'a, T> {
 
 impl<T: Ord> FusedIterator for SymmetricDifference<'_, T> {}
 
-impl<T, A: Allocator + Clone> Clone for Intersection<'_, T, A> {
+impl<T> Clone for Intersection<'_, T> {
     fn clone(&self) -> Self {
         Intersection {
             inner: match &self.inner {
@@ -1487,7 +1479,7 @@ impl<T, A: Allocator + Clone> Clone for Intersection<'_, T, A> {
     }
 }
 
-impl<'a, T: Ord, A: Allocator + Clone> Iterator for Intersection<'a, T, A> {
+impl<'a, T: Ord> Iterator for Intersection<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<&'a T> {
@@ -1530,7 +1522,7 @@ impl<'a, T: Ord, A: Allocator + Clone> Iterator for Intersection<'a, T, A> {
     }
 }
 
-impl<T: Ord, A: Allocator + Clone> FusedIterator for Intersection<'_, T, A> {}
+impl<T: Ord> FusedIterator for Intersection<'_, T> {}
 
 impl<T> Clone for Union<'_, T> {
     fn clone(&self) -> Self {

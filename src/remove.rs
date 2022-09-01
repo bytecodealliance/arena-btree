@@ -1,16 +1,16 @@
 use super::map::MIN_LEN;
 use super::node::{marker, ForceResult::*, Handle, LeftOrRight::*, NodeRef};
-use core::alloc::Allocator;
+use crate::alloc::ArenaAllocator;
 
 impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal>, marker::KV> {
     /// Removes a key-value pair from the tree, and returns that pair, as well as
     /// the leaf edge corresponding to that former pair. It's possible this empties
     /// a root node that is internal, which the caller should pop from the map
     /// holding the tree. The caller should also decrement the map's length.
-    pub fn remove_kv_tracking<F: FnOnce(), A: Allocator + Clone>(
+    pub fn remove_kv_tracking<F: FnOnce()>(
         self,
         handle_emptied_internal_root: F,
-        alloc: A,
+        alloc: &mut ArenaAllocator,
     ) -> (
         (K, V),
         Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, marker::Edge>,
@@ -23,10 +23,10 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInter
 }
 
 impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, marker::KV> {
-    fn remove_leaf_kv<F: FnOnce(), A: Allocator + Clone>(
+    fn remove_leaf_kv<F: FnOnce()>(
         self,
         handle_emptied_internal_root: F,
-        alloc: A,
+        alloc: &mut ArenaAllocator,
     ) -> (
         (K, V),
         Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, marker::Edge>,
@@ -83,10 +83,10 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, mark
 }
 
 impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Internal>, marker::KV> {
-    fn remove_internal_kv<F: FnOnce(), A: Allocator + Clone>(
+    fn remove_internal_kv<F: FnOnce()>(
         self,
         handle_emptied_internal_root: F,
-        alloc: A,
+        alloc: &mut ArenaAllocator,
     ) -> (
         (K, V),
         Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, marker::Edge>,

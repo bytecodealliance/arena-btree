@@ -19,13 +19,13 @@ use Entry::*;
 #[cfg_attr(not(test), rustc_diagnostic_item = "BTreeEntry")]
 pub enum Entry<'a, K: 'a, V: 'a> {
     /// A vacant entry.
-    Vacant(VacantEntry<'a, K, V, A>),
+    Vacant(VacantEntry<'a, K, V>),
 
     /// An occupied entry.
-    Occupied(OccupiedEntry<'a, K, V, A>),
+    Occupied(OccupiedEntry<'a, K, V>),
 }
 
-impl<K: Debug + Ord, V: Debug, A: Allocator + Clone> Debug for Entry<'_, K, V, A> {
+impl<K: Debug + Ord, V: Debug> Debug for Entry<'_, K, V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Vacant(ref v) => f.debug_tuple("Entry").field(v).finish(),
@@ -41,16 +41,16 @@ pub struct VacantEntry<'a, K, V> {
     pub(super) key: K,
     /// `None` for a (empty) map without root
     pub(super) handle: Option<Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, marker::Edge>>,
-    pub(super) dormant_map: DormantMutRef<'a, BTreeMap<K, V, A>>,
+    pub(super) dormant_map: DormantMutRef<'a, BTreeMap<K, V>>,
 
     /// The BTreeMap will outlive this IntoIter so we don't care about drop order for `alloc`.
-    pub(super) alloc: A,
+    pub(super) alloc: &'a mut ArenaAllocator,
 
     // Be invariant in `K` and `V`
     pub(super) _marker: PhantomData<&'a mut (K, V)>,
 }
 
-impl<K: Debug + Ord, V, A: Allocator + Clone> Debug for VacantEntry<'_, K, V, A> {
+impl<K: Debug + Ord, V> Debug for VacantEntry<'_, K, V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("VacantEntry").field(self.key()).finish()
     }
@@ -61,16 +61,16 @@ impl<K: Debug + Ord, V, A: Allocator + Clone> Debug for VacantEntry<'_, K, V, A>
 
 pub struct OccupiedEntry<'a, K, V> {
     pub(super) handle: Handle<NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal>, marker::KV>,
-    pub(super) dormant_map: DormantMutRef<'a, BTreeMap<K, V, A>>,
+    pub(super) dormant_map: DormantMutRef<'a, BTreeMap<K, V>>,
 
     /// The BTreeMap will outlive this IntoIter so we don't care about drop order for `alloc`.
-    pub(super) alloc: A,
+    pub(super) alloc: &'a mut ArenaAllocator,
 
     // Be invariant in `K` and `V`
     pub(super) _marker: PhantomData<&'a mut (K, V)>,
 }
 
-impl<K: Debug + Ord, V: Debug, A: Allocator + Clone> Debug for OccupiedEntry<'_, K, V, A> {
+impl<K: Debug + Ord, V: Debug> Debug for OccupiedEntry<'_, K, V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OccupiedEntry")
             .field("key", self.key())
@@ -79,7 +79,7 @@ impl<K: Debug + Ord, V: Debug, A: Allocator + Clone> Debug for OccupiedEntry<'_,
     }
 }
 
-impl<'a, K: Ord, V, A: Allocator + Clone> Entry<'a, K, V, A> {
+impl<'a, K: Ord, V> Entry<'a, K, V> {
     /// Ensures a value is in the entry by inserting the default if empty, and returns
     /// a mutable reference to the value in the entry.
     ///
@@ -202,7 +202,7 @@ impl<'a, K: Ord, V, A: Allocator + Clone> Entry<'a, K, V, A> {
     }
 }
 
-impl<'a, K: Ord, V: Default, A: Allocator + Clone> Entry<'a, K, V, A> {
+impl<'a, K: Ord, V: Default> Entry<'a, K, V> {
     /// Ensures a value is in the entry by inserting the default value if empty,
     /// and returns a mutable reference to the value in the entry.
     ///
@@ -224,7 +224,7 @@ impl<'a, K: Ord, V: Default, A: Allocator + Clone> Entry<'a, K, V, A> {
     }
 }
 
-impl<'a, K: Ord, V, A: Allocator + Clone> VacantEntry<'a, K, V, A> {
+impl<'a, K: Ord, V> VacantEntry<'a, K, V> {
     /// Gets a reference to the key that would be used when inserting a value
     /// through the VacantEntry.
     ///
@@ -311,7 +311,7 @@ impl<'a, K: Ord, V, A: Allocator + Clone> VacantEntry<'a, K, V, A> {
     }
 }
 
-impl<'a, K: Ord, V, A: Allocator + Clone> OccupiedEntry<'a, K, V, A> {
+impl<'a, K: Ord, V> OccupiedEntry<'a, K, V> {
     /// Gets a reference to the key in the entry.
     ///
     /// # Examples
