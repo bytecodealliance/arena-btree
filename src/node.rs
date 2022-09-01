@@ -80,7 +80,7 @@ impl<K, V> LeafNode<K, V> {
     fn new(alloc: &mut ArenaAllocator<K, V>) -> Box<Self> {
         todo!("FITZGEN: need to not return a Box, but need to check callers to see if they rely on auto-drop, which won't work anymore");
         unsafe {
-            let mut leaf = alloc.box_new_uninit_leaf_node();
+            let mut leaf = alloc.allocate_leaf_node();
             LeafNode::init(leaf.as_mut_ptr());
 
             // This is `Box::assume_init`, but that is unstable.
@@ -118,7 +118,7 @@ impl<K, V> InternalNode<K, V> {
     unsafe fn new(alloc: &mut ArenaAllocator<K, V>) -> Box<Self> {
         todo!("FITZGEN: need to not return a box but also need to make sure callers don't rely on drop");
         unsafe {
-            let mut node = alloc.box_new_uninit_internal_node();
+            let mut node = alloc.allocate_internal_node();
             // We only need to initialize the data; the edges are MaybeUninit.
             LeafNode::init(ptr::addr_of_mut!((*node.as_mut_ptr()).data));
 

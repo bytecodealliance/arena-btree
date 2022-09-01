@@ -30,11 +30,11 @@ impl<K, V> ArenaAllocator<K, V> {
         todo!();
     }
 
-    pub fn box_new_uninit_leaf_node(&mut self) -> Box<MaybeUninit<LeafNode<K, V>>> {
+    pub fn allocate_leaf_node(&mut self) -> Box<MaybeUninit<LeafNode<K, V>>> {
         todo!()
     }
 
-    pub fn box_new_uninit_internal_node(&mut self) -> Box<MaybeUninit<InternalNode<K, V>>> {
+    pub fn allocate_internal_node(&mut self) -> Box<MaybeUninit<InternalNode<K, V>>> {
         todo!()
     }
 }
