@@ -236,7 +236,7 @@ impl<K, V> NodeRef<marker::Owned, K, V, marker::Internal> {
 
     /// # Safety
     /// `height` must not be zero.
-    unsafe fn from_new_internal(internal: Box<InternalNode<K, V>, A>, height: usize) -> Self {
+    unsafe fn from_new_internal(internal: Box<InternalNode<K, V>>, height: usize) -> Self {
         debug_assert!(height > 0);
         let node = NonNull::from(Box::leak(internal)).cast();
         let mut this = NodeRef {

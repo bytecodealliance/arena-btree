@@ -1031,12 +1031,12 @@ impl<T: Ord> FromIterator<T> for BTreeSet<T> {
 
         // use stable sort to preserve the insertion order.
         inputs.sort();
-        BTreeSet::from_sorted_iter(inputs.into_iter(), Global)
+        BTreeSet::from_sorted_iter(inputs.into_iter(), ArenaAllocator::default())
     }
 }
 
 impl<T: Ord> BTreeSet<T> {
-    fn from_sorted_iter<I: Iterator<Item = T>>(iter: I, alloc: A) -> BTreeSet<T> {
+    fn from_sorted_iter<I: Iterator<Item = T>>(iter: I, alloc: ArenaAllocator) -> BTreeSet<T> {
         let iter = iter.map(|k| (k, SetValZST::default()));
         let map = BTreeMap::bulk_build_from_sorted_iter(iter, alloc);
         BTreeSet { map }
@@ -1061,7 +1061,7 @@ impl<T: Ord, const N: usize> From<[T; N]> for BTreeSet<T> {
         // use stable sort to preserve the insertion order.
         arr.sort();
         let iter = IntoIterator::into_iter(arr).map(|k| (k, SetValZST::default()));
-        let map = BTreeMap::bulk_build_from_sorted_iter(iter, Global);
+        let map = BTreeMap::bulk_build_from_sorted_iter(iter, ArenaAllocator::default());
         BTreeSet { map }
     }
 }
