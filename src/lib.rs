@@ -1,3 +1,5 @@
+#![allow(warnings)] // TODO FITZGEN: temp
+
 mod alloc;
 mod append;
 mod borrow;

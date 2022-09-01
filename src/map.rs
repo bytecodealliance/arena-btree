@@ -230,11 +230,11 @@ impl<K: Clone, V: Clone> Clone for BTreeMap<K, V> {
                     out_tree
                 }
                 Internal(internal) => {
-                    let mut out_tree = clone_subtree(internal.first_edge().descend(), &mut alloc);
+                    let mut out_tree = clone_subtree(internal.first_edge().descend(), alloc);
 
                     {
                         let out_root = out_tree.root.as_mut().unwrap();
-                        let mut out_node = out_root.push_internal_level(&mut alloc);
+                        let mut out_node = out_root.push_internal_level(&mut out_tree.alloc);
                         let mut in_edge = internal.first_edge();
                         while let Ok(kv) = in_edge.right_kv() {
                             let (k, v) = kv.into_kv();
@@ -242,18 +242,24 @@ impl<K: Clone, V: Clone> Clone for BTreeMap<K, V> {
 
                             let k = (*k).clone();
                             let v = (*v).clone();
-                            let subtree = clone_subtree(in_edge.descend(), &mut alloc);
+                            let subtree =
+                                clone_subtree(in_edge.descend(), ArenaAllocator::default());
 
                             // We can't destructure subtree directly
                             // because BTreeMap implements Drop
                             let (subroot, sublength) = unsafe {
+                                todo!("FITZGEN: this is going to leak the arena I think");
                                 let subtree = ManuallyDrop::new(subtree);
                                 let root = ptr::read(&subtree.root);
                                 let length = subtree.length;
                                 (root, length)
                             };
 
-                            out_node.push(k, v, subroot.unwrap_or_else(|| Root::new(&mut alloc)));
+                            out_node.push(
+                                k,
+                                v,
+                                subroot.unwrap_or_else(|| Root::new(&mut out_tree.alloc)),
+                            );
                             out_tree.length += 1 + sublength;
                         }
                     }
@@ -264,12 +270,13 @@ impl<K: Clone, V: Clone> Clone for BTreeMap<K, V> {
         }
 
         if self.is_empty() {
-            BTreeMap::new_in((*self.alloc).clone())
+            BTreeMap::new()
         } else {
             clone_subtree(
+                // unwrap succeeds because not empty
                 self.root.as_ref().unwrap().reborrow(),
-                (*self.alloc).clone(),
-            ) // unwrap succeeds because not empty
+                ArenaAllocator::default(),
+            )
         }
     }
 }
@@ -297,7 +304,7 @@ where
                 OccupiedEntry {
                     handle,
                     dormant_map,
-                    alloc: (*map.alloc).clone(),
+                    alloc: &mut *map.alloc,
                     _marker: PhantomData,
                 }
                 .remove_kv()
@@ -311,7 +318,7 @@ where
         let (map, dormant_map) = DormantMutRef::new(self);
         let root_node = map
             .root
-            .get_or_insert_with(|| Root::new((*map.alloc).clone()))
+            .get_or_insert_with(|| Root::new(&mut *map.alloc))
             .borrow_mut();
         match root_node.search_tree::<K>(&key) {
             Found(mut kv) => Some(mem::replace(kv.key_mut(), key)),
@@ -320,7 +327,7 @@ where
                     key,
                     handle: Some(handle),
                     dormant_map,
-                    alloc: (*map.alloc).clone(),
+                    alloc: &mut *map.alloc,
                     _marker: PhantomData,
                 }
                 .insert(SetValZST::default());
@@ -811,7 +818,7 @@ impl<K, V> BTreeMap<K, V> {
                 OccupiedEntry {
                     handle,
                     dormant_map,
-                    alloc: (*map.alloc).clone(),
+                    alloc: &mut *map.alloc,
                     _marker: PhantomData,
                 }
                 .remove_entry(),
@@ -842,6 +849,74 @@ impl<K, V> BTreeMap<K, V> {
         F: FnMut(&K, &mut V) -> bool,
     {
         self.drain_filter(|k, v| !f(k, v));
+    }
+
+    /// Creates an iterator that visits all elements (key-value pairs) in
+    /// ascending key order and uses a closure to determine if an element should
+    /// be removed. If the closure returns `true`, the element is removed from
+    /// the map and yielded. If the closure returns `false`, or panics, the
+    /// element remains in the map and will not be yielded.
+    ///
+    /// The iterator also lets you mutate the value of each element in the
+    /// closure, regardless of whether you choose to keep or remove it.
+    ///
+    /// If the iterator is only partially consumed or not consumed at all, each
+    /// of the remaining elements is still subjected to the closure, which may
+    /// change its value and, by returning `true`, have the element removed and
+    /// dropped.
+    ///
+    /// It is unspecified how many more elements will be subjected to the
+    /// closure if a panic occurs in the closure, or a panic occurs while
+    /// dropping an element, or if the `DrainFilter` value is leaked.
+    ///
+    /// # Examples
+    ///
+    /// Splitting a map into even and odd keys, reusing the original map:
+    ///
+    /// ```
+    /// #![feature(btree_drain_filter)]
+    /// use std::collections::BTreeMap;
+    ///
+    /// let mut map: BTreeMap<i32, i32> = (0..8).map(|x| (x, x)).collect();
+    /// let evens: BTreeMap<_, _> = map.drain_filter(|k, _v| k % 2 == 0).collect();
+    /// let odds = map;
+    /// assert_eq!(evens.keys().copied().collect::<Vec<_>>(), [0, 2, 4, 6]);
+    /// assert_eq!(odds.keys().copied().collect::<Vec<_>>(), [1, 3, 5, 7]);
+    /// ```
+    pub(crate) fn drain_filter<F>(&mut self, pred: F) -> DrainFilter<'_, K, V, F>
+    where
+        K: Ord,
+        F: FnMut(&K, &mut V) -> bool,
+    {
+        let (inner, alloc) = self.drain_filter_inner();
+        DrainFilter { pred, inner, alloc }
+    }
+
+    pub(super) fn drain_filter_inner(&mut self) -> (DrainFilterInner<'_, K, V>, &mut ArenaAllocator)
+    where
+        K: Ord,
+    {
+        if let Some(root) = self.root.as_mut() {
+            let (root, dormant_root) = DormantMutRef::new(root);
+            let front = root.borrow_mut().first_leaf_edge();
+            (
+                DrainFilterInner {
+                    length: &mut self.length,
+                    dormant_root: Some(dormant_root),
+                    cur_leaf_edge: Some(front),
+                },
+                &mut *self.alloc,
+            )
+        } else {
+            (
+                DrainFilterInner {
+                    length: &mut self.length,
+                    dormant_root: None,
+                    cur_leaf_edge: None,
+                },
+                &mut *self.alloc,
+            )
+        }
     }
 
     /// Moves all elements from `other` into `self`, leaving `other` empty.
@@ -1016,21 +1091,21 @@ impl<K, V> BTreeMap<K, V> {
                 key,
                 handle: None,
                 dormant_map,
-                alloc: (*map.alloc).clone(),
+                alloc: &mut map.alloc,
                 _marker: PhantomData,
             }),
             Some(ref mut root) => match root.borrow_mut().search_tree(&key) {
                 Found(handle) => Occupied(OccupiedEntry {
                     handle,
                     dormant_map,
-                    alloc: (*map.alloc).clone(),
+                    alloc: &mut map.alloc,
                     _marker: PhantomData,
                 }),
                 GoDown(handle) => Vacant(VacantEntry {
                     key,
                     handle: Some(handle),
                     dormant_map,
-                    alloc: (*map.alloc).clone(),
+                    alloc: &mut map.alloc,
                     _marker: PhantomData,
                 }),
             },
@@ -1485,6 +1560,112 @@ impl<K, V> Clone for Values<'_, K, V> {
     }
 }
 
+/// An iterator produced by calling `drain_filter` on BTreeMap.
+pub(crate) struct DrainFilter<'a, K, V, F>
+where
+    F: 'a + FnMut(&K, &mut V) -> bool,
+{
+    pred: F,
+    inner: DrainFilterInner<'a, K, V>,
+    alloc: &'a mut ArenaAllocator,
+}
+/// Most of the implementation of DrainFilter are generic over the type
+/// of the predicate, thus also serving for BTreeSet::DrainFilter.
+pub(super) struct DrainFilterInner<'a, K, V> {
+    /// Reference to the length field in the borrowed map, updated live.
+    length: &'a mut usize,
+    /// Buried reference to the root field in the borrowed map.
+    /// Wrapped in `Option` to allow drop handler to `take` it.
+    dormant_root: Option<DormantMutRef<'a, Root<K, V>>>,
+    /// Contains a leaf edge preceding the next element to be returned, or the last leaf edge.
+    /// Empty if the map has no root, if iteration went beyond the last leaf edge,
+    /// or if a panic occurred in the predicate.
+    cur_leaf_edge: Option<Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, marker::Edge>>,
+}
+
+impl<K, V, F> Drop for DrainFilter<'_, K, V, F>
+where
+    F: FnMut(&K, &mut V) -> bool,
+{
+    fn drop(&mut self) {
+        self.for_each(drop);
+    }
+}
+
+impl<K, V, F> fmt::Debug for DrainFilter<'_, K, V, F>
+where
+    K: fmt::Debug,
+    V: fmt::Debug,
+    F: FnMut(&K, &mut V) -> bool,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("DrainFilter")
+            .field(&self.inner.peek())
+            .finish()
+    }
+}
+
+impl<K, V, F> Iterator for DrainFilter<'_, K, V, F>
+where
+    F: FnMut(&K, &mut V) -> bool,
+{
+    type Item = (K, V);
+
+    fn next(&mut self) -> Option<(K, V)> {
+        self.inner.next(&mut self.pred, self.alloc)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl<'a, K, V> DrainFilterInner<'a, K, V> {
+    /// Allow Debug implementations to predict the next element.
+    pub(super) fn peek(&self) -> Option<(&K, &V)> {
+        let edge = self.cur_leaf_edge.as_ref()?;
+        edge.reborrow().next_kv().ok().map(Handle::into_kv)
+    }
+
+    /// Implementation of a typical `DrainFilter::next` method, given the predicate.
+    pub(super) fn next<F>(&mut self, pred: &mut F, alloc: &mut ArenaAllocator) -> Option<(K, V)>
+    where
+        F: FnMut(&K, &mut V) -> bool,
+    {
+        while let Ok(mut kv) = self.cur_leaf_edge.take()?.next_kv() {
+            let (k, v) = kv.kv_mut();
+            if pred(k, v) {
+                *self.length -= 1;
+                let (kv, pos) = kv.remove_kv_tracking(
+                    || {
+                        // SAFETY: we will touch the root in a way that will not
+                        // invalidate the position returned.
+                        let root = unsafe { self.dormant_root.take().unwrap().awaken() };
+                        root.pop_internal_level(alloc);
+                        self.dormant_root = Some(DormantMutRef::new(root).1);
+                    },
+                    alloc,
+                );
+                self.cur_leaf_edge = Some(pos);
+                return Some(kv);
+            }
+            self.cur_leaf_edge = Some(kv.next_leaf_edge());
+        }
+        None
+    }
+
+    /// Implementation of a typical `DrainFilter::size_hint` method.
+    pub(super) fn size_hint(&self) -> (usize, Option<usize>) {
+        // In most of the btree iterators, `self.length` is the number of elements
+        // yet to be visited. Here, it includes elements that were visited and that
+        // the predicate decided not to drain. Making this upper bound more tight
+        // during iteration would require an extra field.
+        (0, Some(*self.length))
+    }
+}
+
+impl<K, V, F> FusedIterator for DrainFilter<'_, K, V, F> where F: FnMut(&K, &mut V) -> bool {}
+
 impl<'a, K, V> Iterator for Range<'a, K, V> {
     type Item = (&'a K, &'a V);
 
@@ -1678,7 +1859,7 @@ impl<'a, K: Ord + Copy, V: Copy> Extend<(&'a K, &'a V)> for BTreeMap<K, V> {
 
 impl<K: Hash, V: Hash> Hash for BTreeMap<K, V> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write_length_prefix(self.len());
+        self.len().hash(state);
         for elt in self {
             elt.hash(state);
         }
