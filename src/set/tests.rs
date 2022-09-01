@@ -24,28 +24,28 @@ fn test_iter_min_max() {
     assert_eq!(a.iter().max(), None);
     assert_eq!(a.range(..).min(), None);
     assert_eq!(a.range(..).max(), None);
-    assert_eq!(a.difference(&BTreeSet::new()).min(), None);
-    assert_eq!(a.difference(&BTreeSet::new()).max(), None);
-    assert_eq!(a.intersection(&a).min(), None);
-    assert_eq!(a.intersection(&a).max(), None);
-    assert_eq!(a.symmetric_difference(&BTreeSet::new()).min(), None);
-    assert_eq!(a.symmetric_difference(&BTreeSet::new()).max(), None);
-    assert_eq!(a.union(&a).min(), None);
-    assert_eq!(a.union(&a).max(), None);
+    // assert_eq!(a.difference(&BTreeSet::new()).min(), None);
+    // assert_eq!(a.difference(&BTreeSet::new()).max(), None);
+    // assert_eq!(a.intersection(&a).min(), None);
+    // assert_eq!(a.intersection(&a).max(), None);
+    // assert_eq!(a.symmetric_difference(&BTreeSet::new()).min(), None);
+    // assert_eq!(a.symmetric_difference(&BTreeSet::new()).max(), None);
+    // assert_eq!(a.union(&a).min(), None);
+    // assert_eq!(a.union(&a).max(), None);
     a.insert(1);
     a.insert(2);
     assert_eq!(a.iter().min(), Some(&1));
     assert_eq!(a.iter().max(), Some(&2));
     assert_eq!(a.range(..).min(), Some(&1));
     assert_eq!(a.range(..).max(), Some(&2));
-    assert_eq!(a.difference(&BTreeSet::new()).min(), Some(&1));
-    assert_eq!(a.difference(&BTreeSet::new()).max(), Some(&2));
-    assert_eq!(a.intersection(&a).min(), Some(&1));
-    assert_eq!(a.intersection(&a).max(), Some(&2));
-    assert_eq!(a.symmetric_difference(&BTreeSet::new()).min(), Some(&1));
-    assert_eq!(a.symmetric_difference(&BTreeSet::new()).max(), Some(&2));
-    assert_eq!(a.union(&a).min(), Some(&1));
-    assert_eq!(a.union(&a).max(), Some(&2));
+    // assert_eq!(a.difference(&BTreeSet::new()).min(), Some(&1));
+    // assert_eq!(a.difference(&BTreeSet::new()).max(), Some(&2));
+    // assert_eq!(a.intersection(&a).min(), Some(&1));
+    // assert_eq!(a.intersection(&a).max(), Some(&2));
+    // assert_eq!(a.symmetric_difference(&BTreeSet::new()).min(), Some(&1));
+    // assert_eq!(a.symmetric_difference(&BTreeSet::new()).max(), Some(&2));
+    // assert_eq!(a.union(&a).min(), Some(&1));
+    // assert_eq!(a.union(&a).max(), Some(&2));
 }
 
 fn check<F>(a: &[i32], b: &[i32], expected: &[i32], f: F)
@@ -627,21 +627,21 @@ fn assert_sync() {
         v.drain_filter(|_| false)
     }
 
-    fn difference<T: Sync + Ord>(v: &BTreeSet<T>) -> impl Sync + '_ {
-        v.difference(&v)
-    }
+    // fn difference<T: Sync + Ord>(v: &BTreeSet<T>) -> impl Sync + '_ {
+    //     v.difference(&v)
+    // }
 
-    fn intersection<T: Sync + Ord>(v: &BTreeSet<T>) -> impl Sync + '_ {
-        v.intersection(&v)
-    }
+    // fn intersection<T: Sync + Ord>(v: &BTreeSet<T>) -> impl Sync + '_ {
+    //     v.intersection(&v)
+    // }
 
-    fn symmetric_difference<T: Sync + Ord>(v: &BTreeSet<T>) -> impl Sync + '_ {
-        v.symmetric_difference(&v)
-    }
+    // fn symmetric_difference<T: Sync + Ord>(v: &BTreeSet<T>) -> impl Sync + '_ {
+    //     v.symmetric_difference(&v)
+    // }
 
-    fn union<T: Sync + Ord>(v: &BTreeSet<T>) -> impl Sync + '_ {
-        v.union(&v)
-    }
+    // fn union<T: Sync + Ord>(v: &BTreeSet<T>) -> impl Sync + '_ {
+    //     v.union(&v)
+    // }
 }
 
 #[allow(dead_code)]
@@ -666,21 +666,21 @@ fn assert_send() {
         v.drain_filter(|_| false)
     }
 
-    fn difference<T: Send + Sync + Ord>(v: &BTreeSet<T>) -> impl Send + '_ {
-        v.difference(&v)
-    }
+    // fn difference<T: Send + Sync + Ord>(v: &BTreeSet<T>) -> impl Send + '_ {
+    //     v.difference(&v)
+    // }
 
-    fn intersection<T: Send + Sync + Ord>(v: &BTreeSet<T>) -> impl Send + '_ {
-        v.intersection(&v)
-    }
+    // fn intersection<T: Send + Sync + Ord>(v: &BTreeSet<T>) -> impl Send + '_ {
+    //     v.intersection(&v)
+    // }
 
-    fn symmetric_difference<T: Send + Sync + Ord>(v: &BTreeSet<T>) -> impl Send + '_ {
-        v.symmetric_difference(&v)
-    }
+    // fn symmetric_difference<T: Send + Sync + Ord>(v: &BTreeSet<T>) -> impl Send + '_ {
+    //     v.symmetric_difference(&v)
+    // }
 
-    fn union<T: Send + Sync + Ord>(v: &BTreeSet<T>) -> impl Send + '_ {
-        v.union(&v)
-    }
+    // fn union<T: Send + Sync + Ord>(v: &BTreeSet<T>) -> impl Send + '_ {
+    //     v.union(&v)
+    // }
 }
 
 #[allow(dead_code)]

@@ -372,189 +372,189 @@ impl<T> BTreeSet<T> {
         }
     }
 
-    /// Visits the elements representing the difference,
-    /// i.e., the elements that are in `self` but not in `other`,
-    /// in ascending order.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::collections::BTreeSet;
-    ///
-    /// let mut a = BTreeSet::new();
-    /// a.insert(1);
-    /// a.insert(2);
-    ///
-    /// let mut b = BTreeSet::new();
-    /// b.insert(2);
-    /// b.insert(3);
-    ///
-    /// let diff: Vec<_> = a.difference(&b).cloned().collect();
-    /// assert_eq!(diff, [1]);
-    /// ```
-    pub fn difference<'a>(&'a self, other: &'a BTreeSet<T>) -> Difference<'a, T>
-    where
-        T: Ord,
-    {
-        let (self_min, self_max) =
-            if let (Some(self_min), Some(self_max)) = (self.first(), self.last()) {
-                (self_min, self_max)
-            } else {
-                return Difference {
-                    inner: DifferenceInner::Iterate(self.iter()),
-                };
-            };
-        let (other_min, other_max) =
-            if let (Some(other_min), Some(other_max)) = (other.first(), other.last()) {
-                (other_min, other_max)
-            } else {
-                return Difference {
-                    inner: DifferenceInner::Iterate(self.iter()),
-                };
-            };
-        Difference {
-            inner: match (self_min.cmp(other_max), self_max.cmp(other_min)) {
-                (Greater, _) | (_, Less) => DifferenceInner::Iterate(self.iter()),
-                (Equal, _) => {
-                    let mut self_iter = self.iter();
-                    self_iter.next();
-                    DifferenceInner::Iterate(self_iter)
-                }
-                (_, Equal) => {
-                    let mut self_iter = self.iter();
-                    self_iter.next_back();
-                    DifferenceInner::Iterate(self_iter)
-                }
-                _ if self.len() <= other.len() / ITER_PERFORMANCE_TIPPING_SIZE_DIFF => {
-                    DifferenceInner::Search {
-                        self_iter: self.iter(),
-                        other_set: other,
-                    }
-                }
-                _ => DifferenceInner::Stitch {
-                    self_iter: self.iter(),
-                    other_iter: other.iter().peekable(),
-                },
-            },
-        }
-    }
+    // /// Visits the elements representing the difference,
+    // /// i.e., the elements that are in `self` but not in `other`,
+    // /// in ascending order.
+    // ///
+    // /// # Examples
+    // ///
+    // /// ```
+    // /// use std::collections::BTreeSet;
+    // ///
+    // /// let mut a = BTreeSet::new();
+    // /// a.insert(1);
+    // /// a.insert(2);
+    // ///
+    // /// let mut b = BTreeSet::new();
+    // /// b.insert(2);
+    // /// b.insert(3);
+    // ///
+    // /// let diff: Vec<_> = a.difference(&b).cloned().collect();
+    // /// assert_eq!(diff, [1]);
+    // /// ```
+    // pub fn difference<'a>(&'a self, other: &'a BTreeSet<T>) -> Difference<'a, T>
+    // where
+    //     T: Ord,
+    // {
+    //     let (self_min, self_max) =
+    //         if let (Some(self_min), Some(self_max)) = (self.first(), self.last()) {
+    //             (self_min, self_max)
+    //         } else {
+    //             return Difference {
+    //                 inner: DifferenceInner::Iterate(self.iter()),
+    //             };
+    //         };
+    //     let (other_min, other_max) =
+    //         if let (Some(other_min), Some(other_max)) = (other.first(), other.last()) {
+    //             (other_min, other_max)
+    //         } else {
+    //             return Difference {
+    //                 inner: DifferenceInner::Iterate(self.iter()),
+    //             };
+    //         };
+    //     Difference {
+    //         inner: match (self_min.cmp(other_max), self_max.cmp(other_min)) {
+    //             (Greater, _) | (_, Less) => DifferenceInner::Iterate(self.iter()),
+    //             (Equal, _) => {
+    //                 let mut self_iter = self.iter();
+    //                 self_iter.next();
+    //                 DifferenceInner::Iterate(self_iter)
+    //             }
+    //             (_, Equal) => {
+    //                 let mut self_iter = self.iter();
+    //                 self_iter.next_back();
+    //                 DifferenceInner::Iterate(self_iter)
+    //             }
+    //             _ if self.len() <= other.len() / ITER_PERFORMANCE_TIPPING_SIZE_DIFF => {
+    //                 DifferenceInner::Search {
+    //                     self_iter: self.iter(),
+    //                     other_set: other,
+    //                 }
+    //             }
+    //             _ => DifferenceInner::Stitch {
+    //                 self_iter: self.iter(),
+    //                 other_iter: other.iter().peekable(),
+    //             },
+    //         },
+    //     }
+    // }
 
-    /// Visits the elements representing the symmetric difference,
-    /// i.e., the elements that are in `self` or in `other` but not in both,
-    /// in ascending order.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::collections::BTreeSet;
-    ///
-    /// let mut a = BTreeSet::new();
-    /// a.insert(1);
-    /// a.insert(2);
-    ///
-    /// let mut b = BTreeSet::new();
-    /// b.insert(2);
-    /// b.insert(3);
-    ///
-    /// let sym_diff: Vec<_> = a.symmetric_difference(&b).cloned().collect();
-    /// assert_eq!(sym_diff, [1, 3]);
-    /// ```
-    pub fn symmetric_difference<'a>(&'a self, other: &'a BTreeSet<T>) -> SymmetricDifference<'a, T>
-    where
-        T: Ord,
-    {
-        SymmetricDifference(MergeIterInner::new(self.iter(), other.iter()))
-    }
+    // /// Visits the elements representing the symmetric difference,
+    // /// i.e., the elements that are in `self` or in `other` but not in both,
+    // /// in ascending order.
+    // ///
+    // /// # Examples
+    // ///
+    // /// ```
+    // /// use std::collections::BTreeSet;
+    // ///
+    // /// let mut a = BTreeSet::new();
+    // /// a.insert(1);
+    // /// a.insert(2);
+    // ///
+    // /// let mut b = BTreeSet::new();
+    // /// b.insert(2);
+    // /// b.insert(3);
+    // ///
+    // /// let sym_diff: Vec<_> = a.symmetric_difference(&b).cloned().collect();
+    // /// assert_eq!(sym_diff, [1, 3]);
+    // /// ```
+    // pub fn symmetric_difference<'a>(&'a self, other: &'a BTreeSet<T>) -> SymmetricDifference<'a, T>
+    // where
+    //     T: Ord,
+    // {
+    //     SymmetricDifference(MergeIterInner::new(self.iter(), other.iter()))
+    // }
 
-    /// Visits the elements representing the intersection,
-    /// i.e., the elements that are both in `self` and `other`,
-    /// in ascending order.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::collections::BTreeSet;
-    ///
-    /// let mut a = BTreeSet::new();
-    /// a.insert(1);
-    /// a.insert(2);
-    ///
-    /// let mut b = BTreeSet::new();
-    /// b.insert(2);
-    /// b.insert(3);
-    ///
-    /// let intersection: Vec<_> = a.intersection(&b).cloned().collect();
-    /// assert_eq!(intersection, [2]);
-    /// ```
-    pub fn intersection<'a>(&'a self, other: &'a BTreeSet<T>) -> Intersection<'a, T>
-    where
-        T: Ord,
-    {
-        let (self_min, self_max) =
-            if let (Some(self_min), Some(self_max)) = (self.first(), self.last()) {
-                (self_min, self_max)
-            } else {
-                return Intersection {
-                    inner: IntersectionInner::Answer(None),
-                };
-            };
-        let (other_min, other_max) =
-            if let (Some(other_min), Some(other_max)) = (other.first(), other.last()) {
-                (other_min, other_max)
-            } else {
-                return Intersection {
-                    inner: IntersectionInner::Answer(None),
-                };
-            };
-        Intersection {
-            inner: match (self_min.cmp(other_max), self_max.cmp(other_min)) {
-                (Greater, _) | (_, Less) => IntersectionInner::Answer(None),
-                (Equal, _) => IntersectionInner::Answer(Some(self_min)),
-                (_, Equal) => IntersectionInner::Answer(Some(self_max)),
-                _ if self.len() <= other.len() / ITER_PERFORMANCE_TIPPING_SIZE_DIFF => {
-                    IntersectionInner::Search {
-                        small_iter: self.iter(),
-                        large_set: other,
-                    }
-                }
-                _ if other.len() <= self.len() / ITER_PERFORMANCE_TIPPING_SIZE_DIFF => {
-                    IntersectionInner::Search {
-                        small_iter: other.iter(),
-                        large_set: self,
-                    }
-                }
-                _ => IntersectionInner::Stitch {
-                    a: self.iter(),
-                    b: other.iter(),
-                },
-            },
-        }
-    }
+    // /// Visits the elements representing the intersection,
+    // /// i.e., the elements that are both in `self` and `other`,
+    // /// in ascending order.
+    // ///
+    // /// # Examples
+    // ///
+    // /// ```
+    // /// use std::collections::BTreeSet;
+    // ///
+    // /// let mut a = BTreeSet::new();
+    // /// a.insert(1);
+    // /// a.insert(2);
+    // ///
+    // /// let mut b = BTreeSet::new();
+    // /// b.insert(2);
+    // /// b.insert(3);
+    // ///
+    // /// let intersection: Vec<_> = a.intersection(&b).cloned().collect();
+    // /// assert_eq!(intersection, [2]);
+    // /// ```
+    // pub fn intersection<'a>(&'a self, other: &'a BTreeSet<T>) -> Intersection<'a, T>
+    // where
+    //     T: Ord,
+    // {
+    //     let (self_min, self_max) =
+    //         if let (Some(self_min), Some(self_max)) = (self.first(), self.last()) {
+    //             (self_min, self_max)
+    //         } else {
+    //             return Intersection {
+    //                 inner: IntersectionInner::Answer(None),
+    //             };
+    //         };
+    //     let (other_min, other_max) =
+    //         if let (Some(other_min), Some(other_max)) = (other.first(), other.last()) {
+    //             (other_min, other_max)
+    //         } else {
+    //             return Intersection {
+    //                 inner: IntersectionInner::Answer(None),
+    //             };
+    //         };
+    //     Intersection {
+    //         inner: match (self_min.cmp(other_max), self_max.cmp(other_min)) {
+    //             (Greater, _) | (_, Less) => IntersectionInner::Answer(None),
+    //             (Equal, _) => IntersectionInner::Answer(Some(self_min)),
+    //             (_, Equal) => IntersectionInner::Answer(Some(self_max)),
+    //             _ if self.len() <= other.len() / ITER_PERFORMANCE_TIPPING_SIZE_DIFF => {
+    //                 IntersectionInner::Search {
+    //                     small_iter: self.iter(),
+    //                     large_set: other,
+    //                 }
+    //             }
+    //             _ if other.len() <= self.len() / ITER_PERFORMANCE_TIPPING_SIZE_DIFF => {
+    //                 IntersectionInner::Search {
+    //                     small_iter: other.iter(),
+    //                     large_set: self,
+    //                 }
+    //             }
+    //             _ => IntersectionInner::Stitch {
+    //                 a: self.iter(),
+    //                 b: other.iter(),
+    //             },
+    //         },
+    //     }
+    // }
 
-    /// Visits the elements representing the union,
-    /// i.e., all the elements in `self` or `other`, without duplicates,
-    /// in ascending order.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::collections::BTreeSet;
-    ///
-    /// let mut a = BTreeSet::new();
-    /// a.insert(1);
-    ///
-    /// let mut b = BTreeSet::new();
-    /// b.insert(2);
-    ///
-    /// let union: Vec<_> = a.union(&b).cloned().collect();
-    /// assert_eq!(union, [1, 2]);
-    /// ```
-    pub fn union<'a>(&'a self, other: &'a BTreeSet<T>) -> Union<'a, T>
-    where
-        T: Ord,
-    {
-        Union(MergeIterInner::new(self.iter(), other.iter()))
-    }
+    // /// Visits the elements representing the union,
+    // /// i.e., all the elements in `self` or `other`, without duplicates,
+    // /// in ascending order.
+    // ///
+    // /// # Examples
+    // ///
+    // /// ```
+    // /// use std::collections::BTreeSet;
+    // ///
+    // /// let mut a = BTreeSet::new();
+    // /// a.insert(1);
+    // ///
+    // /// let mut b = BTreeSet::new();
+    // /// b.insert(2);
+    // ///
+    // /// let union: Vec<_> = a.union(&b).cloned().collect();
+    // /// assert_eq!(union, [1, 2]);
+    // /// ```
+    // pub fn union<'a>(&'a self, other: &'a BTreeSet<T>) -> Union<'a, T>
+    // where
+    //     T: Ord,
+    // {
+    //     Union(MergeIterInner::new(self.iter(), other.iter()))
+    // }
 
     /// Clears the set, removing all elements.
     ///
@@ -619,134 +619,134 @@ impl<T> BTreeSet<T> {
         Recover::get(&self.map, value)
     }
 
-    /// Returns `true` if `self` has no elements in common with `other`.
-    /// This is equivalent to checking for an empty intersection.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::collections::BTreeSet;
-    ///
-    /// let a = BTreeSet::from([1, 2, 3]);
-    /// let mut b = BTreeSet::new();
-    ///
-    /// assert_eq!(a.is_disjoint(&b), true);
-    /// b.insert(4);
-    /// assert_eq!(a.is_disjoint(&b), true);
-    /// b.insert(1);
-    /// assert_eq!(a.is_disjoint(&b), false);
-    /// ```
-    #[must_use]
-    pub fn is_disjoint(&self, other: &BTreeSet<T>) -> bool
-    where
-        T: Ord,
-    {
-        self.intersection(other).next().is_none()
-    }
+    // /// Returns `true` if `self` has no elements in common with `other`.
+    // /// This is equivalent to checking for an empty intersection.
+    // ///
+    // /// # Examples
+    // ///
+    // /// ```
+    // /// use std::collections::BTreeSet;
+    // ///
+    // /// let a = BTreeSet::from([1, 2, 3]);
+    // /// let mut b = BTreeSet::new();
+    // ///
+    // /// assert_eq!(a.is_disjoint(&b), true);
+    // /// b.insert(4);
+    // /// assert_eq!(a.is_disjoint(&b), true);
+    // /// b.insert(1);
+    // /// assert_eq!(a.is_disjoint(&b), false);
+    // /// ```
+    // #[must_use]
+    // pub fn is_disjoint(&self, other: &BTreeSet<T>) -> bool
+    // where
+    //     T: Ord,
+    // {
+    //     self.intersection(other).next().is_none()
+    // }
 
-    /// Returns `true` if the set is a subset of another,
-    /// i.e., `other` contains at least all the elements in `self`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::collections::BTreeSet;
-    ///
-    /// let sup = BTreeSet::from([1, 2, 3]);
-    /// let mut set = BTreeSet::new();
-    ///
-    /// assert_eq!(set.is_subset(&sup), true);
-    /// set.insert(2);
-    /// assert_eq!(set.is_subset(&sup), true);
-    /// set.insert(4);
-    /// assert_eq!(set.is_subset(&sup), false);
-    /// ```
-    #[must_use]
-    pub fn is_subset(&self, other: &BTreeSet<T>) -> bool
-    where
-        T: Ord,
-    {
-        // Same result as self.difference(other).next().is_none()
-        // but the code below is faster (hugely in some cases).
-        if self.len() > other.len() {
-            return false;
-        }
-        let (self_min, self_max) =
-            if let (Some(self_min), Some(self_max)) = (self.first(), self.last()) {
-                (self_min, self_max)
-            } else {
-                return true; // self is empty
-            };
-        let (other_min, other_max) =
-            if let (Some(other_min), Some(other_max)) = (other.first(), other.last()) {
-                (other_min, other_max)
-            } else {
-                return false; // other is empty
-            };
-        let mut self_iter = self.iter();
-        match self_min.cmp(other_min) {
-            Less => return false,
-            Equal => {
-                self_iter.next();
-            }
-            Greater => (),
-        }
-        match self_max.cmp(other_max) {
-            Greater => return false,
-            Equal => {
-                self_iter.next_back();
-            }
-            Less => (),
-        }
-        if self_iter.len() <= other.len() / ITER_PERFORMANCE_TIPPING_SIZE_DIFF {
-            for next in self_iter {
-                if !other.contains(next) {
-                    return false;
-                }
-            }
-        } else {
-            let mut other_iter = other.iter();
-            other_iter.next();
-            other_iter.next_back();
-            let mut self_next = self_iter.next();
-            while let Some(self1) = self_next {
-                match other_iter.next().map_or(Less, |other1| self1.cmp(other1)) {
-                    Less => return false,
-                    Equal => self_next = self_iter.next(),
-                    Greater => (),
-                }
-            }
-        }
-        true
-    }
+    // /// Returns `true` if the set is a subset of another,
+    // /// i.e., `other` contains at least all the elements in `self`.
+    // ///
+    // /// # Examples
+    // ///
+    // /// ```
+    // /// use std::collections::BTreeSet;
+    // ///
+    // /// let sup = BTreeSet::from([1, 2, 3]);
+    // /// let mut set = BTreeSet::new();
+    // ///
+    // /// assert_eq!(set.is_subset(&sup), true);
+    // /// set.insert(2);
+    // /// assert_eq!(set.is_subset(&sup), true);
+    // /// set.insert(4);
+    // /// assert_eq!(set.is_subset(&sup), false);
+    // /// ```
+    // #[must_use]
+    // pub fn is_subset(&self, other: &BTreeSet<T>) -> bool
+    // where
+    //     T: Ord,
+    // {
+    //     // Same result as self.difference(other).next().is_none()
+    //     // but the code below is faster (hugely in some cases).
+    //     if self.len() > other.len() {
+    //         return false;
+    //     }
+    //     let (self_min, self_max) =
+    //         if let (Some(self_min), Some(self_max)) = (self.first(), self.last()) {
+    //             (self_min, self_max)
+    //         } else {
+    //             return true; // self is empty
+    //         };
+    //     let (other_min, other_max) =
+    //         if let (Some(other_min), Some(other_max)) = (other.first(), other.last()) {
+    //             (other_min, other_max)
+    //         } else {
+    //             return false; // other is empty
+    //         };
+    //     let mut self_iter = self.iter();
+    //     match self_min.cmp(other_min) {
+    //         Less => return false,
+    //         Equal => {
+    //             self_iter.next();
+    //         }
+    //         Greater => (),
+    //     }
+    //     match self_max.cmp(other_max) {
+    //         Greater => return false,
+    //         Equal => {
+    //             self_iter.next_back();
+    //         }
+    //         Less => (),
+    //     }
+    //     if self_iter.len() <= other.len() / ITER_PERFORMANCE_TIPPING_SIZE_DIFF {
+    //         for next in self_iter {
+    //             if !other.contains(next) {
+    //                 return false;
+    //             }
+    //         }
+    //     } else {
+    //         let mut other_iter = other.iter();
+    //         other_iter.next();
+    //         other_iter.next_back();
+    //         let mut self_next = self_iter.next();
+    //         while let Some(self1) = self_next {
+    //             match other_iter.next().map_or(Less, |other1| self1.cmp(other1)) {
+    //                 Less => return false,
+    //                 Equal => self_next = self_iter.next(),
+    //                 Greater => (),
+    //             }
+    //         }
+    //     }
+    //     true
+    // }
 
-    /// Returns `true` if the set is a superset of another,
-    /// i.e., `self` contains at least all the elements in `other`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::collections::BTreeSet;
-    ///
-    /// let sub = BTreeSet::from([1, 2]);
-    /// let mut set = BTreeSet::new();
-    ///
-    /// assert_eq!(set.is_superset(&sub), false);
-    ///
-    /// set.insert(0);
-    /// set.insert(1);
-    /// assert_eq!(set.is_superset(&sub), false);
-    ///
-    /// set.insert(2);
-    /// assert_eq!(set.is_superset(&sub), true);
-    /// ```
-    #[must_use]
-    pub fn is_superset(&self, other: &BTreeSet<T>) -> bool
-    where
-        T: Ord,
-    {
-        other.is_subset(self)
-    }
+    // /// Returns `true` if the set is a superset of another,
+    // /// i.e., `self` contains at least all the elements in `other`.
+    // ///
+    // /// # Examples
+    // ///
+    // /// ```
+    // /// use std::collections::BTreeSet;
+    // ///
+    // /// let sub = BTreeSet::from([1, 2]);
+    // /// let mut set = BTreeSet::new();
+    // ///
+    // /// assert_eq!(set.is_superset(&sub), false);
+    // ///
+    // /// set.insert(0);
+    // /// set.insert(1);
+    // /// assert_eq!(set.is_superset(&sub), false);
+    // ///
+    // /// set.insert(2);
+    // /// assert_eq!(set.is_superset(&sub), true);
+    // /// ```
+    // #[must_use]
+    // pub fn is_superset(&self, other: &BTreeSet<T>) -> bool
+    // where
+    //     T: Ord,
+    // {
+    //     other.is_subset(self)
+    // }
 
     /// Adds a value to the set.
     ///
@@ -947,6 +947,44 @@ impl<T> BTreeSet<T> {
         }
     }
 
+    /// Creates an iterator that visits all elements in ascending order and
+    /// uses a closure to determine if an element should be removed.
+    ///
+    /// If the closure returns `true`, the element is removed from the set and
+    /// yielded. If the closure returns `false`, or panics, the element remains
+    /// in the set and will not be yielded.
+    ///
+    /// If the iterator is only partially consumed or not consumed at all, each
+    /// of the remaining elements is still subjected to the closure and removed
+    /// and dropped if it returns `true`.
+    ///
+    /// It is unspecified how many more elements will be subjected to the
+    /// closure if a panic occurs in the closure, or if a panic occurs while
+    /// dropping an element, or if the `DrainFilter` itself is leaked.
+    ///
+    /// # Examples
+    ///
+    /// Splitting a set into even and odd values, reusing the original set:
+    ///
+    /// ```
+    /// #![feature(btree_drain_filter)]
+    /// use std::collections::BTreeSet;
+    ///
+    /// let mut set: BTreeSet<i32> = (0..8).collect();
+    /// let evens: BTreeSet<_> = set.drain_filter(|v| v % 2 == 0).collect();
+    /// let odds = set;
+    /// assert_eq!(evens.into_iter().collect::<Vec<_>>(), vec![0, 2, 4, 6]);
+    /// assert_eq!(odds.into_iter().collect::<Vec<_>>(), vec![1, 3, 5, 7]);
+    /// ```
+    pub(crate) fn drain_filter<'a, F>(&'a mut self, pred: F) -> DrainFilter<'a, T, F>
+    where
+        T: Ord,
+        F: 'a + FnMut(&T) -> bool,
+    {
+        let (inner, alloc) = self.map.drain_filter_inner();
+        DrainFilter { pred, inner, alloc }
+    }
+
     /// Gets an iterator that visits the elements in the `BTreeSet` in ascending
     /// order.
     ///
@@ -1093,6 +1131,60 @@ impl<'a, T> IntoIterator for &'a BTreeSet<T> {
     }
 }
 
+/// An iterator produced by calling `drain_filter` on BTreeSet.
+pub(crate) struct DrainFilter<'a, T, F>
+where
+    T: 'a,
+    F: 'a + FnMut(&T) -> bool,
+{
+    pred: F,
+    inner: super::map::DrainFilterInner<'a, T, SetValZST>,
+    /// The BTreeMap will outlive this IntoIter so we don't care about drop order for `alloc`.
+    alloc: &'a mut ArenaAllocator,
+}
+
+impl<T, F> Drop for DrainFilter<'_, T, F>
+where
+    F: FnMut(&T) -> bool,
+{
+    fn drop(&mut self) {
+        self.for_each(drop);
+    }
+}
+
+impl<T, F> fmt::Debug for DrainFilter<'_, T, F>
+where
+    T: fmt::Debug,
+    F: FnMut(&T) -> bool,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("DrainFilter")
+            .field(&self.inner.peek().map(|(k, _)| k))
+            .finish()
+    }
+}
+
+impl<'a, T, F> Iterator for DrainFilter<'_, T, F>
+where
+    F: 'a + FnMut(&T) -> bool,
+{
+    type Item = T;
+
+    fn next(&mut self) -> Option<T> {
+        let pred = &mut self.pred;
+        let mut mapped_pred = |k: &T, _v: &mut SetValZST| pred(k);
+        self.inner
+            .next(&mut mapped_pred, &mut self.alloc)
+            .map(|(k, _)| k)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl<T, F> FusedIterator for DrainFilter<'_, T, F> where F: FnMut(&T) -> bool {}
+
 impl<T: Ord> Extend<T> for BTreeSet<T> {
     #[inline]
     fn extend<Iter: IntoIterator<Item = T>>(&mut self, iter: Iter) {
@@ -1115,92 +1207,92 @@ impl<T> Default for BTreeSet<T> {
     }
 }
 
-impl<T: Ord + Clone> Sub<&BTreeSet<T>> for &BTreeSet<T> {
-    type Output = BTreeSet<T>;
+// impl<T: Ord + Clone> Sub<&BTreeSet<T>> for &BTreeSet<T> {
+//     type Output = BTreeSet<T>;
 
-    /// Returns the difference of `self` and `rhs` as a new `BTreeSet<T>`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::collections::BTreeSet;
-    ///
-    /// let a = BTreeSet::from([1, 2, 3]);
-    /// let b = BTreeSet::from([3, 4, 5]);
-    ///
-    /// let result = &a - &b;
-    /// assert_eq!(result, BTreeSet::from([1, 2]));
-    /// ```
-    fn sub(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
-        BTreeSet::from_sorted_iter(self.difference(rhs).cloned(), ArenaAllocator::default())
-    }
-}
+//     /// Returns the difference of `self` and `rhs` as a new `BTreeSet<T>`.
+//     ///
+//     /// # Examples
+//     ///
+//     /// ```
+//     /// use std::collections::BTreeSet;
+//     ///
+//     /// let a = BTreeSet::from([1, 2, 3]);
+//     /// let b = BTreeSet::from([3, 4, 5]);
+//     ///
+//     /// let result = &a - &b;
+//     /// assert_eq!(result, BTreeSet::from([1, 2]));
+//     /// ```
+//     fn sub(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
+//         BTreeSet::from_sorted_iter(self.difference(rhs).cloned(), ArenaAllocator::default())
+//     }
+// }
 
-impl<T: Ord + Clone> BitXor<&BTreeSet<T>> for &BTreeSet<T> {
-    type Output = BTreeSet<T>;
+// impl<T: Ord + Clone> BitXor<&BTreeSet<T>> for &BTreeSet<T> {
+//     type Output = BTreeSet<T>;
 
-    /// Returns the symmetric difference of `self` and `rhs` as a new `BTreeSet<T>`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::collections::BTreeSet;
-    ///
-    /// let a = BTreeSet::from([1, 2, 3]);
-    /// let b = BTreeSet::from([2, 3, 4]);
-    ///
-    /// let result = &a ^ &b;
-    /// assert_eq!(result, BTreeSet::from([1, 4]));
-    /// ```
-    fn bitxor(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
-        BTreeSet::from_sorted_iter(
-            self.symmetric_difference(rhs).cloned(),
-            ArenaAllocator::default(),
-        )
-    }
-}
+//     /// Returns the symmetric difference of `self` and `rhs` as a new `BTreeSet<T>`.
+//     ///
+//     /// # Examples
+//     ///
+//     /// ```
+//     /// use std::collections::BTreeSet;
+//     ///
+//     /// let a = BTreeSet::from([1, 2, 3]);
+//     /// let b = BTreeSet::from([2, 3, 4]);
+//     ///
+//     /// let result = &a ^ &b;
+//     /// assert_eq!(result, BTreeSet::from([1, 4]));
+//     /// ```
+//     fn bitxor(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
+//         BTreeSet::from_sorted_iter(
+//             self.symmetric_difference(rhs).cloned(),
+//             ArenaAllocator::default(),
+//         )
+//     }
+// }
 
-impl<T: Ord + Clone> BitAnd<&BTreeSet<T>> for &BTreeSet<T> {
-    type Output = BTreeSet<T>;
+// impl<T: Ord + Clone> BitAnd<&BTreeSet<T>> for &BTreeSet<T> {
+//     type Output = BTreeSet<T>;
 
-    /// Returns the intersection of `self` and `rhs` as a new `BTreeSet<T>`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::collections::BTreeSet;
-    ///
-    /// let a = BTreeSet::from([1, 2, 3]);
-    /// let b = BTreeSet::from([2, 3, 4]);
-    ///
-    /// let result = &a & &b;
-    /// assert_eq!(result, BTreeSet::from([2, 3]));
-    /// ```
-    fn bitand(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
-        BTreeSet::from_sorted_iter(self.intersection(rhs).cloned(), ArenaAllocator::default())
-    }
-}
+//     /// Returns the intersection of `self` and `rhs` as a new `BTreeSet<T>`.
+//     ///
+//     /// # Examples
+//     ///
+//     /// ```
+//     /// use std::collections::BTreeSet;
+//     ///
+//     /// let a = BTreeSet::from([1, 2, 3]);
+//     /// let b = BTreeSet::from([2, 3, 4]);
+//     ///
+//     /// let result = &a & &b;
+//     /// assert_eq!(result, BTreeSet::from([2, 3]));
+//     /// ```
+//     fn bitand(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
+//         BTreeSet::from_sorted_iter(self.intersection(rhs).cloned(), ArenaAllocator::default())
+//     }
+// }
 
-impl<T: Ord + Clone> BitOr<&BTreeSet<T>> for &BTreeSet<T> {
-    type Output = BTreeSet<T>;
+// impl<T: Ord + Clone> BitOr<&BTreeSet<T>> for &BTreeSet<T> {
+//     type Output = BTreeSet<T>;
 
-    /// Returns the union of `self` and `rhs` as a new `BTreeSet<T>`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use std::collections::BTreeSet;
-    ///
-    /// let a = BTreeSet::from([1, 2, 3]);
-    /// let b = BTreeSet::from([3, 4, 5]);
-    ///
-    /// let result = &a | &b;
-    /// assert_eq!(result, BTreeSet::from([1, 2, 3, 4, 5]));
-    /// ```
-    fn bitor(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
-        BTreeSet::from_sorted_iter(self.union(rhs).cloned(), ArenaAllocator::default())
-    }
-}
+//     /// Returns the union of `self` and `rhs` as a new `BTreeSet<T>`.
+//     ///
+//     /// # Examples
+//     ///
+//     /// ```
+//     /// use std::collections::BTreeSet;
+//     ///
+//     /// let a = BTreeSet::from([1, 2, 3]);
+//     /// let b = BTreeSet::from([3, 4, 5]);
+//     ///
+//     /// let result = &a | &b;
+//     /// assert_eq!(result, BTreeSet::from([1, 2, 3, 4, 5]));
+//     /// ```
+//     fn bitor(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
+//         BTreeSet::from_sorted_iter(self.union(rhs).cloned(), ArenaAllocator::default())
+//     }
+// }
 
 impl<T: Debug> Debug for BTreeSet<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
