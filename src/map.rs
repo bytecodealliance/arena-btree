@@ -204,7 +204,7 @@ impl<K: Clone, V: Clone> Clone for BTreeMap<K, V> {
             match node.force() {
                 Leaf(leaf) => {
                     let mut out_tree = BTreeMap {
-                        root: Some(Root::new(alloc.clone())),
+                        root: Some(Root::new(&mut alloc)),
                         length: 0,
                         alloc: ManuallyDrop::new(alloc),
                         _marker: PhantomData,
@@ -230,12 +230,11 @@ impl<K: Clone, V: Clone> Clone for BTreeMap<K, V> {
                     out_tree
                 }
                 Internal(internal) => {
-                    let mut out_tree =
-                        clone_subtree(internal.first_edge().descend(), alloc.clone());
+                    let mut out_tree = clone_subtree(internal.first_edge().descend(), &mut alloc);
 
                     {
                         let out_root = out_tree.root.as_mut().unwrap();
-                        let mut out_node = out_root.push_internal_level(alloc.clone());
+                        let mut out_node = out_root.push_internal_level(&mut alloc);
                         let mut in_edge = internal.first_edge();
                         while let Ok(kv) = in_edge.right_kv() {
                             let (k, v) = kv.into_kv();
@@ -243,7 +242,7 @@ impl<K: Clone, V: Clone> Clone for BTreeMap<K, V> {
 
                             let k = (*k).clone();
                             let v = (*v).clone();
-                            let subtree = clone_subtree(in_edge.descend(), alloc.clone());
+                            let subtree = clone_subtree(in_edge.descend(), &mut alloc);
 
                             // We can't destructure subtree directly
                             // because BTreeMap implements Drop
@@ -254,11 +253,7 @@ impl<K: Clone, V: Clone> Clone for BTreeMap<K, V> {
                                 (root, length)
                             };
 
-                            out_node.push(
-                                k,
-                                v,
-                                subroot.unwrap_or_else(|| Root::new(alloc.clone())),
-                            );
+                            out_node.push(k, v, subroot.unwrap_or_else(|| Root::new(&mut alloc)));
                             out_tree.length += 1 + sublength;
                         }
                     }
@@ -593,11 +588,14 @@ impl<K, V> BTreeMap<K, V> {
     /// assert!(a.is_empty());
     /// ```
     pub fn clear(&mut self) {
-        // avoid moving the allocator
+        let alloc = std::mem::replace(
+            &mut self.alloc,
+            ManuallyDrop::new(ArenaAllocator::default()),
+        );
         mem::drop(BTreeMap {
             root: mem::replace(&mut self.root, None),
             length: mem::replace(&mut self.length, 0),
-            alloc: self.alloc.clone(),
+            alloc,
             _marker: PhantomData,
         });
     }
@@ -889,17 +887,10 @@ impl<K, V> BTreeMap<K, V> {
             return;
         }
 
-        let self_iter = mem::replace(self, Self::new_in((*self.alloc).clone())).into_iter();
-        let other_iter = mem::replace(other, Self::new_in((*self.alloc).clone())).into_iter();
-        let root = self
-            .root
-            .get_or_insert_with(|| Root::new((*self.alloc).clone()));
-        root.append_from_sorted_iters(
-            self_iter,
-            other_iter,
-            &mut self.length,
-            (*self.alloc).clone(),
-        )
+        let self_iter = mem::replace(self, Self::new()).into_iter();
+        let other_iter = mem::replace(other, Self::new()).into_iter();
+        let root = self.root.get_or_insert_with(|| Root::new(&mut self.alloc));
+        root.append_from_sorted_iters(self_iter, other_iter, &mut self.length, &mut self.alloc);
     }
 
     /// Constructs a double-ended iterator over a sub-range of elements in the map.
@@ -1080,14 +1071,15 @@ impl<K, V> BTreeMap<K, V> {
         K: Borrow<Q> + Ord,
     {
         todo!("FITZGEN: will need to manage the arena here");
+
         if self.is_empty() {
-            return Self::new_in((*self.alloc).clone());
+            return Self::new();
         }
 
         let total_num = self.len();
         let left_root = self.root.as_mut().unwrap(); // unwrap succeeds because not empty
 
-        let right_root = left_root.split_off(key, (*self.alloc).clone());
+        let right_root = left_root.split_off(key, &mut self.alloc);
 
         let (new_left_len, right_len) = Root::calc_split_length(total_num, &left_root, &right_root);
         self.length = new_left_len;
@@ -1095,7 +1087,7 @@ impl<K, V> BTreeMap<K, V> {
         BTreeMap {
             root: Some(right_root),
             length: right_len,
-            alloc: self.alloc.clone(),
+            alloc: todo!("FITZGEN"), // self.alloc.clone(),
             _marker: PhantomData,
         }
     }
@@ -1152,7 +1144,7 @@ impl<K, V> BTreeMap<K, V> {
         K: Ord,
         I: IntoIterator<Item = (K, V)>,
     {
-        let mut root = Root::new(alloc.clone());
+        let mut root = Root::new(&mut alloc);
         let mut length = 0;
         root.bulk_push(
             DedupSortedIter::new(iter.into_iter()),
@@ -1357,11 +1349,11 @@ impl<K, V> IntoIter<K, V> {
         &mut self,
     ) -> Option<Handle<NodeRef<marker::Dying, K, V, marker::LeafOrInternal>, marker::KV>> {
         if self.length == 0 {
-            self.range.deallocating_end(self.alloc.clone());
+            self.range.deallocating_end(&mut self.alloc);
             None
         } else {
             self.length -= 1;
-            Some(unsafe { self.range.deallocating_next_unchecked(self.alloc.clone()) })
+            Some(unsafe { self.range.deallocating_next_unchecked(&mut self.alloc) })
         }
     }
 
@@ -1371,14 +1363,11 @@ impl<K, V> IntoIter<K, V> {
         &mut self,
     ) -> Option<Handle<NodeRef<marker::Dying, K, V, marker::LeafOrInternal>, marker::KV>> {
         if self.length == 0 {
-            self.range.deallocating_end(self.alloc.clone());
+            self.range.deallocating_end(&mut self.alloc);
             None
         } else {
             self.length -= 1;
-            Some(unsafe {
-                self.range
-                    .deallocating_next_back_unchecked(self.alloc.clone())
-            })
+            Some(unsafe { self.range.deallocating_next_back_unchecked(&mut self.alloc) })
         }
     }
 }

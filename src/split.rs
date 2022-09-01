@@ -34,7 +34,7 @@ impl<K, V> Root<K, V> {
         K: Borrow<Q>,
     {
         let left_root = self;
-        let mut right_root = Root::new_pillar(left_root.height(), alloc.clone());
+        let mut right_root = Root::new_pillar(left_root.height(), alloc);
         let mut left_node = left_root.borrow_mut();
         let mut right_node = right_root.borrow_mut();
 
@@ -57,16 +57,16 @@ impl<K, V> Root<K, V> {
             }
         }
 
-        left_root.fix_right_border(alloc.clone());
+        left_root.fix_right_border(alloc);
         right_root.fix_left_border(alloc);
         right_root
     }
 
     /// Creates a tree consisting of empty nodes.
     fn new_pillar(height: usize, alloc: &mut ArenaAllocator) -> Self {
-        let mut root = Root::new(alloc.clone());
+        let mut root = Root::new(alloc);
         for _ in 0..height {
-            root.push_internal_level(alloc.clone());
+            root.push_internal_level(alloc);
         }
         root
     }

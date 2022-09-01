@@ -476,7 +476,7 @@ impl<K, V> Handle<NodeRef<marker::Dying, K, V, marker::Leaf>, marker::Edge> {
             edge = match edge.right_kv() {
                 Ok(kv) => return Some((unsafe { ptr::read(&kv) }.next_leaf_edge(), kv)),
                 Err(last_edge) => {
-                    match unsafe { last_edge.into_node().deallocate_and_ascend(alloc.clone()) } {
+                    match unsafe { last_edge.into_node().deallocate_and_ascend(alloc) } {
                         Some(parent_edge) => parent_edge.forget_node_type(),
                         None => return None,
                     }
@@ -510,7 +510,7 @@ impl<K, V> Handle<NodeRef<marker::Dying, K, V, marker::Leaf>, marker::Edge> {
             edge = match edge.left_kv() {
                 Ok(kv) => return Some((unsafe { ptr::read(&kv) }.next_back_leaf_edge(), kv)),
                 Err(last_edge) => {
-                    match unsafe { last_edge.into_node().deallocate_and_ascend(alloc.clone()) } {
+                    match unsafe { last_edge.into_node().deallocate_and_ascend(alloc) } {
                         Some(parent_edge) => parent_edge.forget_node_type(),
                         None => return None,
                     }
@@ -527,9 +527,7 @@ impl<K, V> Handle<NodeRef<marker::Dying, K, V, marker::Leaf>, marker::Edge> {
     /// no cleanup is done on any of the keys or values.
     fn deallocating_end(self, alloc: &mut ArenaAllocator) {
         let mut edge = self.forget_node_type();
-        while let Some(parent_edge) =
-            unsafe { edge.into_node().deallocate_and_ascend(alloc.clone()) }
-        {
+        while let Some(parent_edge) = unsafe { edge.into_node().deallocate_and_ascend(alloc) } {
             edge = parent_edge.forget_node_type();
         }
     }

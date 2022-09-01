@@ -64,7 +64,7 @@ impl<K, V> Root<K, V> {
                         }
                         Err(_) => {
                             // We are at the top, create a new root node and push there.
-                            open_node = self.push_internal_level(alloc.clone());
+                            open_node = self.push_internal_level(alloc);
                             break;
                         }
                     }
@@ -72,9 +72,9 @@ impl<K, V> Root<K, V> {
 
                 // Push key-value pair and new right subtree.
                 let tree_height = open_node.height() - 1;
-                let mut right_tree = Root::new(alloc.clone());
+                let mut right_tree = Root::new(alloc);
                 for _ in 0..tree_height {
-                    right_tree.push_internal_level(alloc.clone());
+                    right_tree.push_internal_level(alloc);
                 }
                 open_node.push(key, value, right_tree);
 

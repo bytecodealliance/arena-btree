@@ -1074,7 +1074,7 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, mark
         Option<SplitResult<'a, K, V, marker::LeafOrInternal>>,
         *mut V,
     ) {
-        let (mut split, val_ptr) = match self.insert(key, value, alloc.clone()) {
+        let (mut split, val_ptr) = match self.insert(key, value, alloc) {
             (None, val_ptr) => return (None, val_ptr),
             (Some(split), val_ptr) => (split.forget_node_type(), val_ptr),
         };
@@ -1082,7 +1082,7 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, mark
         loop {
             split = match split.left.ascend() {
                 Ok(parent) => {
-                    match parent.insert(split.kv.0, split.kv.1, split.right, alloc.clone()) {
+                    match parent.insert(split.kv.0, split.kv.1, split.right, alloc) {
                         None => return (None, val_ptr),
                         Some(split) => split.forget_node_type(),
                     }

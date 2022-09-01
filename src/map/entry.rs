@@ -277,13 +277,13 @@ impl<'a, K: Ord, V> VacantEntry<'a, K, V> {
             None => {
                 // SAFETY: There is no tree yet so no reference to it exists.
                 let map = unsafe { self.dormant_map.awaken() };
-                let mut root = NodeRef::new_leaf(self.alloc.clone());
+                let mut root = NodeRef::new_leaf(&mut self.alloc);
                 let val_ptr = root.borrow_mut().push(self.key, value) as *mut V;
                 map.root = Some(root.forget_type());
                 map.length = 1;
                 val_ptr
             }
-            Some(handle) => match handle.insert_recursing(self.key, value, self.alloc.clone()) {
+            Some(handle) => match handle.insert_recursing(self.key, value, &mut self.alloc) {
                 (None, val_ptr) => {
                     // SAFETY: We have consumed self.handle.
                     let map = unsafe { self.dormant_map.awaken() };
@@ -472,7 +472,7 @@ impl<'a, K: Ord, V> OccupiedEntry<'a, K, V> {
         let mut emptied_internal_root = false;
         let (old_kv, _) = self
             .handle
-            .remove_kv_tracking(|| emptied_internal_root = true, self.alloc.clone());
+            .remove_kv_tracking(|| emptied_internal_root = true, &mut self.alloc);
         // SAFETY: we consumed the intermediate root borrow, `self.handle`.
         let map = unsafe { self.dormant_map.awaken() };
         map.length -= 1;

@@ -1,21 +1,18 @@
 // This is pretty much entirely stolen from TreeSet, since BTreeMap has an identical interface
 // to TreeMap
 
+use super::map::{BTreeMap, Keys};
+use super::merge_iter::MergeIterInner;
+use super::set_val::SetValZST;
+use super::Recover;
+use crate::alloc::ArenaAllocator;
 use core::borrow::Borrow;
 use core::cmp::Ordering::{self, Equal, Greater, Less};
 use core::cmp::{max, min};
 use core::fmt::{self, Debug};
 use core::hash::{Hash, Hasher};
 use core::iter::{FromIterator, FusedIterator, Peekable};
-use core::mem::ManuallyDrop;
 use core::ops::{BitAnd, BitOr, BitXor, RangeBounds, Sub};
-
-use super::map::{BTreeMap, Keys};
-use super::merge_iter::MergeIterInner;
-use super::set_val::SetValZST;
-use super::Recover;
-
-use crate::alloc::ArenaAllocator;
 
 // FIXME(conventions): implement bounded iterators
 
@@ -1135,10 +1132,7 @@ impl<T: Ord + Clone> Sub<&BTreeSet<T>> for &BTreeSet<T> {
     /// assert_eq!(result, BTreeSet::from([1, 2]));
     /// ```
     fn sub(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
-        BTreeSet::from_sorted_iter(
-            self.difference(rhs).cloned(),
-            ManuallyDrop::into_inner(self.map.alloc.clone()),
-        )
+        BTreeSet::from_sorted_iter(self.difference(rhs).cloned(), ArenaAllocator::default())
     }
 }
 
@@ -1161,7 +1155,7 @@ impl<T: Ord + Clone> BitXor<&BTreeSet<T>> for &BTreeSet<T> {
     fn bitxor(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
         BTreeSet::from_sorted_iter(
             self.symmetric_difference(rhs).cloned(),
-            ManuallyDrop::into_inner(self.map.alloc.clone()),
+            ArenaAllocator::default(),
         )
     }
 }
@@ -1183,10 +1177,7 @@ impl<T: Ord + Clone> BitAnd<&BTreeSet<T>> for &BTreeSet<T> {
     /// assert_eq!(result, BTreeSet::from([2, 3]));
     /// ```
     fn bitand(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
-        BTreeSet::from_sorted_iter(
-            self.intersection(rhs).cloned(),
-            ManuallyDrop::into_inner(self.map.alloc.clone()),
-        )
+        BTreeSet::from_sorted_iter(self.intersection(rhs).cloned(), ArenaAllocator::default())
     }
 }
 
@@ -1207,10 +1198,7 @@ impl<T: Ord + Clone> BitOr<&BTreeSet<T>> for &BTreeSet<T> {
     /// assert_eq!(result, BTreeSet::from([1, 2, 3, 4, 5]));
     /// ```
     fn bitor(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
-        BTreeSet::from_sorted_iter(
-            self.union(rhs).cloned(),
-            ManuallyDrop::into_inner(self.map.alloc.clone()),
-        )
+        BTreeSet::from_sorted_iter(self.union(rhs).cloned(), ArenaAllocator::default())
     }
 }
 
