@@ -46,7 +46,7 @@ const EDGE_IDX_LEFT_OF_CENTER: usize = B - 1;
 const EDGE_IDX_RIGHT_OF_CENTER: usize = B;
 
 /// The underlying representation of leaf nodes and part of the representation of internal nodes.
-struct LeafNode<K, V> {
+pub(crate) struct LeafNode<K, V> {
     /// We want to be covariant in `K` and `V`.
     parent: Option<NonNull<InternalNode<K, V>>>,
 
@@ -80,7 +80,7 @@ impl<K, V> LeafNode<K, V> {
     fn new(alloc: &mut ArenaAllocator) -> Box<Self> {
         todo!("FITZGEN: need to not return a Box, but need to check callers to see if they rely on auto-drop, which won't work anymore");
         unsafe {
-            let mut leaf = alloc.box_new_uninit::<Self>();
+            let mut leaf = alloc.box_new_uninit_leaf_node::<K, V>();
             LeafNode::init(leaf.as_mut_ptr());
 
             // This is `Box::assume_init`, but that is unstable.
@@ -99,7 +99,7 @@ impl<K, V> LeafNode<K, V> {
 /// which of the two a pointer is pointing at. This property is enabled by the use of `repr(C)`.
 #[repr(C)]
 // gdb_providers.py uses this type name for introspection.
-struct InternalNode<K, V> {
+pub(crate) struct InternalNode<K, V> {
     data: LeafNode<K, V>,
 
     /// The pointers to the children of this node. `len + 1` of these are considered
@@ -118,7 +118,7 @@ impl<K, V> InternalNode<K, V> {
     unsafe fn new(alloc: &mut ArenaAllocator) -> Box<Self> {
         todo!("FITZGEN: need to not return a box but also need to make sure callers don't rely on drop");
         unsafe {
-            let mut node = alloc.box_new_uninit::<Self>();
+            let mut node = alloc.box_new_uninit_internal_node::<K, V>();
             // We only need to initialize the data; the edges are MaybeUninit.
             LeafNode::init(ptr::addr_of_mut!((*node.as_mut_ptr()).data));
 
