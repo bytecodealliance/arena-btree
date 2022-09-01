@@ -1,7 +1,6 @@
 use super::super::testing::crash_test::{CrashTestDummy, Panic};
 use super::super::testing::rng::DeterministicRng;
 use super::*;
-use crate::vec::Vec;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 use std::iter::FromIterator;
