@@ -1,4 +1,3 @@
-use core::intrinsics;
 use core::mem;
 use core::ptr;
 
@@ -21,7 +20,7 @@ pub fn replace<T, R>(v: &mut T, change: impl FnOnce(T) -> (T, R)) -> R {
     struct PanicGuard;
     impl Drop for PanicGuard {
         fn drop(&mut self) {
-            intrinsics::abort()
+            std::process::abort();
         }
     }
     let guard = PanicGuard;
