@@ -16,6 +16,9 @@ pub mod set;
 mod set_val;
 mod split;
 
+pub use map::BTreeMap;
+pub use set::BTreeSet;
+
 #[doc(hidden)]
 trait Recover<Q: ?Sized> {
     type Key;

@@ -11,7 +11,7 @@ use core::ptr::NonNull;
 /// the compiler to follow. A `DormantMutRef` allows you to check borrowing
 /// yourself, while still expressing its stacked nature, and encapsulating
 /// the raw pointer code needed to do this without undefined behavior.
-pub struct DormantMutRef<'a, T> {
+pub(crate) struct DormantMutRef<'a, T> {
     ptr: NonNull<T>,
     _marker: PhantomData<&'a mut T>,
 }

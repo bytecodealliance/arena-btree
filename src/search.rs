@@ -7,7 +7,7 @@ use super::node::{marker, ForceResult::*, Handle, NodeRef};
 use SearchBound::*;
 use SearchResult::*;
 
-pub enum SearchBound<T> {
+pub(crate) enum SearchBound<T> {
     /// An inclusive bound to look for, just like `Bound::Included(T)`.
     Included(T),
     /// An exclusive bound to look for, just like `Bound::Excluded(T)`.
@@ -28,12 +28,12 @@ impl<T> SearchBound<T> {
     }
 }
 
-pub enum SearchResult<BorrowType, K, V, FoundType, GoDownType> {
+pub(crate) enum SearchResult<BorrowType, K, V, FoundType, GoDownType> {
     Found(Handle<NodeRef<BorrowType, K, V, FoundType>, marker::KV>),
     GoDown(Handle<NodeRef<BorrowType, K, V, GoDownType>, marker::Edge>),
 }
 
-pub enum IndexResult {
+pub(crate) enum IndexResult {
     KV(usize),
     Edge(usize),
 }

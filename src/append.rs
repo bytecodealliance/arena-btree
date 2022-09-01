@@ -15,7 +15,7 @@ impl<K, V> Root<K, V> {
     /// a `BTreeMap`, both iterators should produce keys in strictly ascending
     /// order, each greater than all keys in the tree, including any keys
     /// already in the tree upon entry.
-    pub fn append_from_sorted_iters<I>(
+    pub(crate) fn append_from_sorted_iters<I>(
         &mut self,
         left: I,
         right: I,
@@ -35,7 +35,7 @@ impl<K, V> Root<K, V> {
     /// Pushes all key-value pairs to the end of the tree, incrementing a
     /// `length` variable along the way. The latter makes it easier for the
     /// caller to avoid a leak when the iterator panicks.
-    pub fn bulk_push<I>(&mut self, iter: I, length: &mut usize, alloc: &mut ArenaAllocator)
+    pub(crate) fn bulk_push<I>(&mut self, iter: I, length: &mut usize, alloc: &mut ArenaAllocator)
     where
         I: Iterator<Item = (K, V)>,
     {

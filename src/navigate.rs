@@ -6,7 +6,7 @@ use core::ops::RangeBounds;
 use core::ptr;
 
 // `front` and `back` are always both `None` or both `Some`.
-pub struct LeafRange<BorrowType, K, V> {
+pub(crate) struct LeafRange<BorrowType, K, V> {
     front: Option<Handle<NodeRef<BorrowType, K, V, marker::Leaf>, marker::Edge>>,
     back: Option<Handle<NodeRef<BorrowType, K, V, marker::Leaf>, marker::Edge>>,
 }
@@ -123,7 +123,7 @@ impl<BorrowType, K, V> LazyLeafHandle<BorrowType, K, V> {
 }
 
 // `front` and `back` are always both `None` or both `Some`.
-pub struct LazyLeafRange<BorrowType, K, V> {
+pub(crate) struct LazyLeafRange<BorrowType, K, V> {
     front: Option<LazyLeafHandle<BorrowType, K, V>>,
     back: Option<LazyLeafHandle<BorrowType, K, V>>,
 }
@@ -661,7 +661,7 @@ impl<BorrowType: marker::BorrowType, K, V> NodeRef<BorrowType, K, V, marker::Lea
     }
 }
 
-pub enum Position<BorrowType, K, V> {
+pub(crate) enum Position<BorrowType, K, V> {
     Leaf(NodeRef<BorrowType, K, V, marker::Leaf>),
     Internal(NodeRef<BorrowType, K, V, marker::Internal>),
     InternalKV(Handle<NodeRef<BorrowType, K, V, marker::Internal>, marker::KV>),

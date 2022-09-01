@@ -41,7 +41,7 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, mark
                 Ok(Left(left_parent_kv)) => {
                     debug_assert!(left_parent_kv.right_child_len() == MIN_LEN - 1);
                     if left_parent_kv.can_merge() {
-                        left_parent_kv.merge_tracking_child_edge(Right(idx), &mut alloc)
+                        left_parent_kv.merge_tracking_child_edge(Right(idx), alloc)
                     } else {
                         debug_assert!(left_parent_kv.left_child_len() > MIN_LEN);
                         left_parent_kv.steal_left(idx)
@@ -50,7 +50,7 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, mark
                 Ok(Right(right_parent_kv)) => {
                     debug_assert!(right_parent_kv.left_child_len() == MIN_LEN - 1);
                     if right_parent_kv.can_merge() {
-                        right_parent_kv.merge_tracking_child_edge(Left(idx), &mut alloc)
+                        right_parent_kv.merge_tracking_child_edge(Left(idx), alloc)
                     } else {
                         debug_assert!(right_parent_kv.right_child_len() > MIN_LEN);
                         right_parent_kv.steal_right(idx)

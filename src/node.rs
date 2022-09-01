@@ -190,7 +190,7 @@ type BoxedNode<K, V> = NonNull<LeafNode<K, V>>;
 ///   as the returned reference is used.
 ///   The methods supporting insert bend this rule by returning a raw pointer,
 ///   i.e., a reference without any lifetime.
-pub struct NodeRef<BorrowType, K, V, Type> {
+pub(crate) struct NodeRef<BorrowType, K, V, Type> {
     /// The number of levels that the node and the level of leaves are apart, a
     /// constant of the node that cannot be entirely described by `Type`, and that
     /// the node itself does not store. We only need to store the height of the root
@@ -206,7 +206,7 @@ pub struct NodeRef<BorrowType, K, V, Type> {
 /// The root node of an owned tree.
 ///
 /// Note that this does not have a destructor, and must be cleaned up manually.
-pub type Root<K, V> = NodeRef<marker::Owned, K, V, marker::LeafOrInternal>;
+pub(crate) type Root<K, V> = NodeRef<marker::Owned, K, V, marker::LeafOrInternal>;
 
 impl<'a, K: 'a, V: 'a, Type> Copy for NodeRef<marker::Immut<'a>, K, V, Type> {}
 impl<'a, K: 'a, V: 'a, Type> Clone for NodeRef<marker::Immut<'a>, K, V, Type> {
@@ -816,7 +816,7 @@ impl<'a, K, V> NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal> {
 /// a child node, these represent the spaces where child pointers would go between the key-value
 /// pairs. For example, in a node with length 2, there would be 3 possible edge locations - one
 /// to the left of the node, one between the two pairs, and one at the right of the node.
-pub struct Handle<Node, Type> {
+pub(crate) struct Handle<Node, Type> {
     node: Node,
     idx: usize,
     _marker: PhantomData<Type>,
@@ -1333,7 +1333,7 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Internal>, 
 
 /// Represents a session for evaluating and performing a balancing operation
 /// around an internal key-value pair.
-pub struct BalancingContext<'a, K, V> {
+pub(crate) struct BalancingContext<'a, K, V> {
     parent: Handle<NodeRef<marker::Mut<'a>, K, V, marker::Internal>, marker::KV>,
     left_child: NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal>,
     right_child: NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal>,
@@ -1800,7 +1800,7 @@ pub enum ForceResult<Leaf, Internal> {
 }
 
 /// Result of insertion, when a node needed to expand beyond its capacity.
-pub struct SplitResult<'a, K, V, NodeType> {
+pub(crate) struct SplitResult<'a, K, V, NodeType> {
     // Altered node in existing tree with elements and edges that belong to the left of `kv`.
     pub left: NodeRef<marker::Mut<'a>, K, V, NodeType>,
     // Some key and value that existed before and were split off, to be inserted elsewhere.
