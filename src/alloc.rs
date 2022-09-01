@@ -27,22 +27,22 @@ impl<K, V> ArenaAllocator<K, V> {
     }
 
     pub fn allocate_leaf_node(&mut self) -> Box<MaybeUninit<LeafNode<K, V>>> {
-        todo!()
+        Box::new(MaybeUninit::<LeafNode<K, V>>::uninit())
     }
 
     pub unsafe fn deallocate_leaf_node(&mut self, ptr: NonNull<MaybeUninit<LeafNode<K, V>>>) {
-        todo!();
+        drop(Box::from_raw(ptr.as_ptr()));
     }
 
     pub fn allocate_internal_node(&mut self) -> Box<MaybeUninit<InternalNode<K, V>>> {
-        todo!()
+        Box::new(MaybeUninit::<InternalNode<K, V>>::uninit())
     }
 
     pub unsafe fn deallocate_internal_node(
         &mut self,
         ptr: NonNull<MaybeUninit<InternalNode<K, V>>>,
     ) {
-        todo!();
+        drop(Box::from_raw(ptr.as_ptr()));
     }
 }
 
