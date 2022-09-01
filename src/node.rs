@@ -434,14 +434,11 @@ impl<K, V> NodeRef<marker::Dying, K, V, marker::LeafOrInternal> {
         let node = self.node;
         let ret = self.ascend().ok();
         unsafe {
-            alloc.deallocate(
-                node.cast(),
-                if height > 0 {
-                    Layout::new::<InternalNode<K, V>>()
-                } else {
-                    Layout::new::<LeafNode<K, V>>()
-                },
-            );
+            if height > 0 {
+                alloc.deallocate_internal_node(node.cast())
+            } else {
+                alloc.deallocate_leaf_node(node.cast())
+            }
         }
         ret
     }
@@ -669,7 +666,7 @@ impl<K, V> NodeRef<marker::Owned, K, V, marker::LeafOrInternal> {
         self.clear_parent_link();
 
         unsafe {
-            alloc.deallocate(top.cast(), Layout::new::<InternalNode<K, V>>());
+            alloc.deallocate_internal_node(top.cast());
         }
     }
 }
@@ -1481,9 +1478,9 @@ impl<'a, K: 'a, V: 'a> BalancingContext<'a, K, V> {
 
                 left_node.correct_childrens_parent_links(old_left_len + 1..new_left_len + 1);
 
-                alloc.deallocate(right_node.node.cast(), Layout::new::<InternalNode<K, V>>());
+                alloc.deallocate_internal_node(right_node.node.cast());
             } else {
-                alloc.deallocate(right_node.node.cast(), Layout::new::<LeafNode<K, V>>());
+                alloc.deallocate_leaf_node(right_node.node.cast());
             }
         }
         result(parent_node, left_node)

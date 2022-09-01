@@ -26,16 +26,23 @@ impl<K, V> ArenaAllocator<K, V> {
         }
     }
 
-    pub fn deallocate(&mut self, ptr: NonNull<u8>, layout: Layout) {
-        todo!();
-    }
-
     pub fn allocate_leaf_node(&mut self) -> Box<MaybeUninit<LeafNode<K, V>>> {
         todo!()
     }
 
+    pub unsafe fn deallocate_leaf_node(&mut self, ptr: NonNull<MaybeUninit<LeafNode<K, V>>>) {
+        todo!();
+    }
+
     pub fn allocate_internal_node(&mut self) -> Box<MaybeUninit<InternalNode<K, V>>> {
         todo!()
+    }
+
+    pub unsafe fn deallocate_internal_node(
+        &mut self,
+        ptr: NonNull<MaybeUninit<InternalNode<K, V>>>,
+    ) {
+        todo!();
     }
 }
 
