@@ -3,15 +3,15 @@ use super::super::testing::ord_chaos::{Cyclic3, Governed, Governor};
 use super::super::testing::rng::DeterministicRng;
 use super::Entry::{Occupied, Vacant};
 use super::*;
-use std::fmt::Debug;
-use std::rc::Rc;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
+use std::fmt::Debug;
 use std::iter::{self, FromIterator};
 use std::mem;
 use std::ops::Bound::{self, Excluded, Included, Unbounded};
 use std::ops::RangeBounds;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 
 // Minimum number of elements to insert, to guarantee a tree with 2 levels,
@@ -112,10 +112,12 @@ impl<K, V> BTreeMap<K, V> {
         K: Ord,
     {
         let iter = mem::take(self).into_iter();
-        if !iter.is_empty() {
-            self.root
-                .insert(Root::new(*self.alloc))
-                .bulk_push(iter, &mut self.length, *self.alloc);
+        if !iter.len() == 0 {
+            self.root.insert(Root::new(&mut *self.alloc)).bulk_push(
+                iter,
+                &mut self.length,
+                &mut *self.alloc,
+            );
         }
     }
 }
@@ -137,44 +139,46 @@ impl<'a, K: 'a, V: 'a> NodeRef<marker::Immut<'a>, K, V, marker::LeafOrInternal> 
     }
 }
 
-// Tests our value of MIN_INSERTS_HEIGHT_2. Failure may mean you just need to
-// adapt that value to match a change in node::CAPACITY or the choices made
-// during insertion, otherwise other test cases may fail or be less useful.
-#[test]
-fn test_levels() {
-    let mut map = BTreeMap::new();
-    map.check();
-    assert_eq!(map.height(), None);
-    assert_eq!(map.len(), 0);
-
-    map.insert(0, ());
-    while map.height() == Some(0) {
-        let last_key = *map.last_key_value().unwrap().0;
-        map.insert(last_key + 1, ());
-    }
-    map.check();
-    // Structure:
-    // - 1 element in internal root node with 2 children
-    // - 6 elements in left leaf child
-    // - 5 elements in right leaf child
-    assert_eq!(map.height(), Some(1));
-    assert_eq!(map.len(), MIN_INSERTS_HEIGHT_1, "{}", map.dump_keys());
-
-    while map.height() == Some(1) {
-        let last_key = *map.last_key_value().unwrap().0;
-        map.insert(last_key + 1, ());
-    }
-    map.check();
-    // Structure:
-    // - 1 element in internal root node with 2 children
-    // - 6 elements in left internal child with 7 grandchildren
-    // - 42 elements in left child's 7 grandchildren with 6 elements each
-    // - 5 elements in right internal child with 6 grandchildren
-    // - 30 elements in right child's 5 first grandchildren with 6 elements each
-    // - 5 elements in right child's last grandchild
-    assert_eq!(map.height(), Some(2));
-    assert_eq!(map.len(), MIN_INSERTS_HEIGHT_2, "{}", map.dump_keys());
-}
+// This test uses unstable methods that we removed.
+//
+// // Tests our value of MIN_INSERTS_HEIGHT_2. Failure may mean you just need to
+// // adapt that value to match a change in node::CAPACITY or the choices made
+// // during insertion, otherwise other test cases may fail or be less useful.
+// #[test]
+// fn test_levels() {
+//     let mut map = BTreeMap::new();
+//     map.check();
+//     assert_eq!(map.height(), None);
+//     assert_eq!(map.len(), 0);
+//
+//     map.insert(0, ());
+//     while map.height() == Some(0) {
+//         let last_key = *map.last_key_value().unwrap().0;
+//         map.insert(last_key + 1, ());
+//     }
+//     map.check();
+//     // Structure:
+//     // - 1 element in internal root node with 2 children
+//     // - 6 elements in left leaf child
+//     // - 5 elements in right leaf child
+//     assert_eq!(map.height(), Some(1));
+//     assert_eq!(map.len(), MIN_INSERTS_HEIGHT_1, "{}", map.dump_keys());
+//
+//     while map.height() == Some(1) {
+//         let last_key = *map.last_key_value().unwrap().0;
+//         map.insert(last_key + 1, ());
+//     }
+//     map.check();
+//     // Structure:
+//     // - 1 element in internal root node with 2 children
+//     // - 6 elements in left internal child with 7 grandchildren
+//     // - 42 elements in left child's 7 grandchildren with 6 elements each
+//     // - 5 elements in right internal child with 6 grandchildren
+//     // - 30 elements in right child's 5 first grandchildren with 6 elements each
+//     // - 5 elements in right child's last grandchild
+//     assert_eq!(map.height(), Some(2));
+//     assert_eq!(map.len(), MIN_INSERTS_HEIGHT_2, "{}", map.dump_keys());
+// }
 
 // Ensures the testing infrastructure usually notices order violations.
 #[test]
@@ -195,151 +199,155 @@ fn test_check_invariants_ord_chaos() {
     map.check_invariants();
 }
 
-#[test]
-fn test_basic_large() {
-    let mut map = BTreeMap::new();
-    // Miri is too slow
-    let size = if cfg!(miri) {
-        MIN_INSERTS_HEIGHT_2
-    } else {
-        10000
-    };
-    let size = size + (size % 2); // round up to even number
-    assert_eq!(map.len(), 0);
+// This test uses unstable methods that we removed.
+//
+// #[test]
+// fn test_basic_large() {
+//     let mut map = BTreeMap::new();
+//     // Miri is too slow
+//     let size = if cfg!(miri) {
+//         MIN_INSERTS_HEIGHT_2
+//     } else {
+//         10000
+//     };
+//     let size = size + (size % 2); // round up to even number
+//     assert_eq!(map.len(), 0);
+//
+//     for i in 0..size {
+//         assert_eq!(map.insert(i, 10 * i), None);
+//         assert_eq!(map.len(), i + 1);
+//     }
+//
+//     assert_eq!(map.first_key_value(), Some((&0, &0)));
+//     assert_eq!(
+//         map.last_key_value(),
+//         Some((&(size - 1), &(10 * (size - 1))))
+//     );
+//     assert_eq!(map.first_entry().unwrap().key(), &0);
+//     assert_eq!(map.last_entry().unwrap().key(), &(size - 1));
+//
+//     for i in 0..size {
+//         assert_eq!(map.get(&i).unwrap(), &(i * 10));
+//     }
+//
+//     for i in size..size * 2 {
+//         assert_eq!(map.get(&i), None);
+//     }
+//
+//     for i in 0..size {
+//         assert_eq!(map.insert(i, 100 * i), Some(10 * i));
+//         assert_eq!(map.len(), size);
+//     }
+//
+//     for i in 0..size {
+//         assert_eq!(map.get(&i).unwrap(), &(i * 100));
+//     }
+//
+//     for i in 0..size / 2 {
+//         assert_eq!(map.remove(&(i * 2)), Some(i * 200));
+//         assert_eq!(map.len(), size - i - 1);
+//     }
+//
+//     for i in 0..size / 2 {
+//         assert_eq!(map.get(&(2 * i)), None);
+//         assert_eq!(map.get(&(2 * i + 1)).unwrap(), &(i * 200 + 100));
+//     }
+//
+//     for i in 0..size / 2 {
+//         assert_eq!(map.remove(&(2 * i)), None);
+//         assert_eq!(map.remove(&(2 * i + 1)), Some(i * 200 + 100));
+//         assert_eq!(map.len(), size / 2 - i - 1);
+//     }
+//     map.check();
+// }
 
-    for i in 0..size {
-        assert_eq!(map.insert(i, 10 * i), None);
-        assert_eq!(map.len(), i + 1);
-    }
-
-    assert_eq!(map.first_key_value(), Some((&0, &0)));
-    assert_eq!(
-        map.last_key_value(),
-        Some((&(size - 1), &(10 * (size - 1))))
-    );
-    assert_eq!(map.first_entry().unwrap().key(), &0);
-    assert_eq!(map.last_entry().unwrap().key(), &(size - 1));
-
-    for i in 0..size {
-        assert_eq!(map.get(&i).unwrap(), &(i * 10));
-    }
-
-    for i in size..size * 2 {
-        assert_eq!(map.get(&i), None);
-    }
-
-    for i in 0..size {
-        assert_eq!(map.insert(i, 100 * i), Some(10 * i));
-        assert_eq!(map.len(), size);
-    }
-
-    for i in 0..size {
-        assert_eq!(map.get(&i).unwrap(), &(i * 100));
-    }
-
-    for i in 0..size / 2 {
-        assert_eq!(map.remove(&(i * 2)), Some(i * 200));
-        assert_eq!(map.len(), size - i - 1);
-    }
-
-    for i in 0..size / 2 {
-        assert_eq!(map.get(&(2 * i)), None);
-        assert_eq!(map.get(&(2 * i + 1)).unwrap(), &(i * 200 + 100));
-    }
-
-    for i in 0..size / 2 {
-        assert_eq!(map.remove(&(2 * i)), None);
-        assert_eq!(map.remove(&(2 * i + 1)), Some(i * 200 + 100));
-        assert_eq!(map.len(), size / 2 - i - 1);
-    }
-    map.check();
-}
-
-#[test]
-fn test_basic_small() {
-    let mut map = BTreeMap::new();
-    // Empty, root is absent (None):
-    assert_eq!(map.remove(&1), None);
-    assert_eq!(map.len(), 0);
-    assert_eq!(map.get(&1), None);
-    assert_eq!(map.get_mut(&1), None);
-    assert_eq!(map.first_key_value(), None);
-    assert_eq!(map.last_key_value(), None);
-    assert_eq!(map.keys().count(), 0);
-    assert_eq!(map.values().count(), 0);
-    assert_eq!(map.range(..).next(), None);
-    assert_eq!(map.range(..1).next(), None);
-    assert_eq!(map.range(1..).next(), None);
-    assert_eq!(map.range(1..=1).next(), None);
-    assert_eq!(map.range(1..2).next(), None);
-    assert_eq!(map.height(), None);
-    assert_eq!(map.insert(1, 1), None);
-    assert_eq!(map.height(), Some(0));
-    map.check();
-
-    // 1 key-value pair:
-    assert_eq!(map.len(), 1);
-    assert_eq!(map.get(&1), Some(&1));
-    assert_eq!(map.get_mut(&1), Some(&mut 1));
-    assert_eq!(map.first_key_value(), Some((&1, &1)));
-    assert_eq!(map.last_key_value(), Some((&1, &1)));
-    assert_eq!(map.keys().collect::<Vec<_>>(), vec![&1]);
-    assert_eq!(map.values().collect::<Vec<_>>(), vec![&1]);
-    assert_eq!(map.insert(1, 2), Some(1));
-    assert_eq!(map.len(), 1);
-    assert_eq!(map.get(&1), Some(&2));
-    assert_eq!(map.get_mut(&1), Some(&mut 2));
-    assert_eq!(map.first_key_value(), Some((&1, &2)));
-    assert_eq!(map.last_key_value(), Some((&1, &2)));
-    assert_eq!(map.keys().collect::<Vec<_>>(), vec![&1]);
-    assert_eq!(map.values().collect::<Vec<_>>(), vec![&2]);
-    assert_eq!(map.insert(2, 4), None);
-    assert_eq!(map.height(), Some(0));
-    map.check();
-
-    // 2 key-value pairs:
-    assert_eq!(map.len(), 2);
-    assert_eq!(map.get(&2), Some(&4));
-    assert_eq!(map.get_mut(&2), Some(&mut 4));
-    assert_eq!(map.first_key_value(), Some((&1, &2)));
-    assert_eq!(map.last_key_value(), Some((&2, &4)));
-    assert_eq!(map.keys().collect::<Vec<_>>(), vec![&1, &2]);
-    assert_eq!(map.values().collect::<Vec<_>>(), vec![&2, &4]);
-    assert_eq!(map.remove(&1), Some(2));
-    assert_eq!(map.height(), Some(0));
-    map.check();
-
-    // 1 key-value pair:
-    assert_eq!(map.len(), 1);
-    assert_eq!(map.get(&1), None);
-    assert_eq!(map.get_mut(&1), None);
-    assert_eq!(map.get(&2), Some(&4));
-    assert_eq!(map.get_mut(&2), Some(&mut 4));
-    assert_eq!(map.first_key_value(), Some((&2, &4)));
-    assert_eq!(map.last_key_value(), Some((&2, &4)));
-    assert_eq!(map.keys().collect::<Vec<_>>(), vec![&2]);
-    assert_eq!(map.values().collect::<Vec<_>>(), vec![&4]);
-    assert_eq!(map.remove(&2), Some(4));
-    assert_eq!(map.height(), Some(0));
-    map.check();
-
-    // Empty but root is owned (Some(...)):
-    assert_eq!(map.len(), 0);
-    assert_eq!(map.get(&1), None);
-    assert_eq!(map.get_mut(&1), None);
-    assert_eq!(map.first_key_value(), None);
-    assert_eq!(map.last_key_value(), None);
-    assert_eq!(map.keys().count(), 0);
-    assert_eq!(map.values().count(), 0);
-    assert_eq!(map.range(..).next(), None);
-    assert_eq!(map.range(..1).next(), None);
-    assert_eq!(map.range(1..).next(), None);
-    assert_eq!(map.range(1..=1).next(), None);
-    assert_eq!(map.range(1..2).next(), None);
-    assert_eq!(map.remove(&1), None);
-    assert_eq!(map.height(), Some(0));
-    map.check();
-}
+// This test uses unstable methods that we removed.
+//
+// #[test]
+// fn test_basic_small() {
+//     let mut map = BTreeMap::new();
+//     // Empty, root is absent (None):
+//     assert_eq!(map.remove(&1), None);
+//     assert_eq!(map.len(), 0);
+//     assert_eq!(map.get(&1), None);
+//     assert_eq!(map.get_mut(&1), None);
+//     assert_eq!(map.first_key_value(), None);
+//     assert_eq!(map.last_key_value(), None);
+//     assert_eq!(map.keys().count(), 0);
+//     assert_eq!(map.values().count(), 0);
+//     assert_eq!(map.range(..).next(), None);
+//     assert_eq!(map.range(..1).next(), None);
+//     assert_eq!(map.range(1..).next(), None);
+//     assert_eq!(map.range(1..=1).next(), None);
+//     assert_eq!(map.range(1..2).next(), None);
+//     assert_eq!(map.height(), None);
+//     assert_eq!(map.insert(1, 1), None);
+//     assert_eq!(map.height(), Some(0));
+//     map.check();
+//
+//     // 1 key-value pair:
+//     assert_eq!(map.len(), 1);
+//     assert_eq!(map.get(&1), Some(&1));
+//     assert_eq!(map.get_mut(&1), Some(&mut 1));
+//     assert_eq!(map.first_key_value(), Some((&1, &1)));
+//     assert_eq!(map.last_key_value(), Some((&1, &1)));
+//     assert_eq!(map.keys().collect::<Vec<_>>(), vec![&1]);
+//     assert_eq!(map.values().collect::<Vec<_>>(), vec![&1]);
+//     assert_eq!(map.insert(1, 2), Some(1));
+//     assert_eq!(map.len(), 1);
+//     assert_eq!(map.get(&1), Some(&2));
+//     assert_eq!(map.get_mut(&1), Some(&mut 2));
+//     assert_eq!(map.first_key_value(), Some((&1, &2)));
+//     assert_eq!(map.last_key_value(), Some((&1, &2)));
+//     assert_eq!(map.keys().collect::<Vec<_>>(), vec![&1]);
+//     assert_eq!(map.values().collect::<Vec<_>>(), vec![&2]);
+//     assert_eq!(map.insert(2, 4), None);
+//     assert_eq!(map.height(), Some(0));
+//     map.check();
+//
+//     // 2 key-value pairs:
+//     assert_eq!(map.len(), 2);
+//     assert_eq!(map.get(&2), Some(&4));
+//     assert_eq!(map.get_mut(&2), Some(&mut 4));
+//     assert_eq!(map.first_key_value(), Some((&1, &2)));
+//     assert_eq!(map.last_key_value(), Some((&2, &4)));
+//     assert_eq!(map.keys().collect::<Vec<_>>(), vec![&1, &2]);
+//     assert_eq!(map.values().collect::<Vec<_>>(), vec![&2, &4]);
+//     assert_eq!(map.remove(&1), Some(2));
+//     assert_eq!(map.height(), Some(0));
+//     map.check();
+//
+//     // 1 key-value pair:
+//     assert_eq!(map.len(), 1);
+//     assert_eq!(map.get(&1), None);
+//     assert_eq!(map.get_mut(&1), None);
+//     assert_eq!(map.get(&2), Some(&4));
+//     assert_eq!(map.get_mut(&2), Some(&mut 4));
+//     assert_eq!(map.first_key_value(), Some((&2, &4)));
+//     assert_eq!(map.last_key_value(), Some((&2, &4)));
+//     assert_eq!(map.keys().collect::<Vec<_>>(), vec![&2]);
+//     assert_eq!(map.values().collect::<Vec<_>>(), vec![&4]);
+//     assert_eq!(map.remove(&2), Some(4));
+//     assert_eq!(map.height(), Some(0));
+//     map.check();
+//
+//     // Empty but root is owned (Some(...)):
+//     assert_eq!(map.len(), 0);
+//     assert_eq!(map.get(&1), None);
+//     assert_eq!(map.get_mut(&1), None);
+//     assert_eq!(map.first_key_value(), None);
+//     assert_eq!(map.last_key_value(), None);
+//     assert_eq!(map.keys().count(), 0);
+//     assert_eq!(map.values().count(), 0);
+//     assert_eq!(map.range(..).next(), None);
+//     assert_eq!(map.range(..1).next(), None);
+//     assert_eq!(map.range(1..).next(), None);
+//     assert_eq!(map.range(1..=1).next(), None);
+//     assert_eq!(map.range(1..2).next(), None);
+//     assert_eq!(map.remove(&1), None);
+//     assert_eq!(map.height(), Some(0));
+//     map.check();
+// }
 
 #[test]
 fn test_iter() {
