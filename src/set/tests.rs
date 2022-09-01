@@ -73,304 +73,306 @@ where
     assert_eq!(i, expected.len());
 }
 
-#[test]
-fn test_intersection() {
-    fn check_intersection(a: &[i32], b: &[i32], expected: &[i32]) {
-        check(a, b, expected, |x, y, f| x.intersection(y).all(f))
-    }
+// This test uses unstable methods we removed.
+//
+// #[test]
+// fn test_intersection() {
+//     fn check_intersection(a: &[i32], b: &[i32], expected: &[i32]) {
+//         check(a, b, expected, |x, y, f| x.intersection(y).all(f))
+//     }
 
-    check_intersection(&[], &[], &[]);
-    check_intersection(&[1, 2, 3], &[], &[]);
-    check_intersection(&[], &[1, 2, 3], &[]);
-    check_intersection(&[2], &[1, 2, 3], &[2]);
-    check_intersection(&[1, 2, 3], &[2], &[2]);
-    check_intersection(
-        &[11, 1, 3, 77, 103, 5, -5],
-        &[2, 11, 77, -9, -42, 5, 3],
-        &[3, 5, 11, 77],
-    );
+//     check_intersection(&[], &[], &[]);
+//     check_intersection(&[1, 2, 3], &[], &[]);
+//     check_intersection(&[], &[1, 2, 3], &[]);
+//     check_intersection(&[2], &[1, 2, 3], &[2]);
+//     check_intersection(&[1, 2, 3], &[2], &[2]);
+//     check_intersection(
+//         &[11, 1, 3, 77, 103, 5, -5],
+//         &[2, 11, 77, -9, -42, 5, 3],
+//         &[3, 5, 11, 77],
+//     );
 
-    if cfg!(miri) {
-        // Miri is too slow
-        return;
-    }
+//     if cfg!(miri) {
+//         // Miri is too slow
+//         return;
+//     }
 
-    let large = Vec::from_iter(0..100);
-    check_intersection(&[], &large, &[]);
-    check_intersection(&large, &[], &[]);
-    check_intersection(&[-1], &large, &[]);
-    check_intersection(&large, &[-1], &[]);
-    check_intersection(&[0], &large, &[0]);
-    check_intersection(&large, &[0], &[0]);
-    check_intersection(&[99], &large, &[99]);
-    check_intersection(&large, &[99], &[99]);
-    check_intersection(&[100], &large, &[]);
-    check_intersection(&large, &[100], &[]);
-    check_intersection(&[11, 5000, 1, 3, 77, 8924], &large, &[1, 3, 11, 77]);
-}
+//     let large = Vec::from_iter(0..100);
+//     check_intersection(&[], &large, &[]);
+//     check_intersection(&large, &[], &[]);
+//     check_intersection(&[-1], &large, &[]);
+//     check_intersection(&large, &[-1], &[]);
+//     check_intersection(&[0], &large, &[0]);
+//     check_intersection(&large, &[0], &[0]);
+//     check_intersection(&[99], &large, &[99]);
+//     check_intersection(&large, &[99], &[99]);
+//     check_intersection(&[100], &large, &[]);
+//     check_intersection(&large, &[100], &[]);
+//     check_intersection(&[11, 5000, 1, 3, 77, 8924], &large, &[1, 3, 11, 77]);
+// }
 
-#[test]
-fn test_intersection_size_hint() {
-    let x = BTreeSet::from([3, 4]);
-    let y = BTreeSet::from([1, 2, 3]);
-    let mut iter = x.intersection(&y);
-    assert_eq!(iter.size_hint(), (1, Some(1)));
-    assert_eq!(iter.next(), Some(&3));
-    assert_eq!(iter.size_hint(), (0, Some(0)));
-    assert_eq!(iter.next(), None);
+// #[test]
+// fn test_intersection_size_hint() {
+//     let x = BTreeSet::from([3, 4]);
+//     let y = BTreeSet::from([1, 2, 3]);
+//     let mut iter = x.intersection(&y);
+//     assert_eq!(iter.size_hint(), (1, Some(1)));
+//     assert_eq!(iter.next(), Some(&3));
+//     assert_eq!(iter.size_hint(), (0, Some(0)));
+//     assert_eq!(iter.next(), None);
 
-    iter = y.intersection(&y);
-    assert_eq!(iter.size_hint(), (0, Some(3)));
-    assert_eq!(iter.next(), Some(&1));
-    assert_eq!(iter.size_hint(), (0, Some(2)));
-}
+//     iter = y.intersection(&y);
+//     assert_eq!(iter.size_hint(), (0, Some(3)));
+//     assert_eq!(iter.next(), Some(&1));
+//     assert_eq!(iter.size_hint(), (0, Some(2)));
+// }
 
-#[test]
-fn test_difference() {
-    fn check_difference(a: &[i32], b: &[i32], expected: &[i32]) {
-        check(a, b, expected, |x, y, f| x.difference(y).all(f))
-    }
+// #[test]
+// fn test_difference() {
+//     fn check_difference(a: &[i32], b: &[i32], expected: &[i32]) {
+//         check(a, b, expected, |x, y, f| x.difference(y).all(f))
+//     }
 
-    check_difference(&[], &[], &[]);
-    check_difference(&[1, 12], &[], &[1, 12]);
-    check_difference(&[], &[1, 2, 3, 9], &[]);
-    check_difference(&[1, 3, 5, 9, 11], &[3, 9], &[1, 5, 11]);
-    check_difference(&[1, 3, 5, 9, 11], &[3, 6, 9], &[1, 5, 11]);
-    check_difference(&[1, 3, 5, 9, 11], &[0, 1], &[3, 5, 9, 11]);
-    check_difference(&[1, 3, 5, 9, 11], &[11, 12], &[1, 3, 5, 9]);
-    check_difference(
-        &[-5, 11, 22, 33, 40, 42],
-        &[-12, -5, 14, 23, 34, 38, 39, 50],
-        &[11, 22, 33, 40, 42],
-    );
+//     check_difference(&[], &[], &[]);
+//     check_difference(&[1, 12], &[], &[1, 12]);
+//     check_difference(&[], &[1, 2, 3, 9], &[]);
+//     check_difference(&[1, 3, 5, 9, 11], &[3, 9], &[1, 5, 11]);
+//     check_difference(&[1, 3, 5, 9, 11], &[3, 6, 9], &[1, 5, 11]);
+//     check_difference(&[1, 3, 5, 9, 11], &[0, 1], &[3, 5, 9, 11]);
+//     check_difference(&[1, 3, 5, 9, 11], &[11, 12], &[1, 3, 5, 9]);
+//     check_difference(
+//         &[-5, 11, 22, 33, 40, 42],
+//         &[-12, -5, 14, 23, 34, 38, 39, 50],
+//         &[11, 22, 33, 40, 42],
+//     );
 
-    if cfg!(miri) {
-        // Miri is too slow
-        return;
-    }
+//     if cfg!(miri) {
+//         // Miri is too slow
+//         return;
+//     }
 
-    let large = Vec::from_iter(0..100);
-    check_difference(&[], &large, &[]);
-    check_difference(&[-1], &large, &[-1]);
-    check_difference(&[0], &large, &[]);
-    check_difference(&[99], &large, &[]);
-    check_difference(&[100], &large, &[100]);
-    check_difference(&[11, 5000, 1, 3, 77, 8924], &large, &[5000, 8924]);
-    check_difference(&large, &[], &large);
-    check_difference(&large, &[-1], &large);
-    check_difference(&large, &[100], &large);
-}
+//     let large = Vec::from_iter(0..100);
+//     check_difference(&[], &large, &[]);
+//     check_difference(&[-1], &large, &[-1]);
+//     check_difference(&[0], &large, &[]);
+//     check_difference(&[99], &large, &[]);
+//     check_difference(&[100], &large, &[100]);
+//     check_difference(&[11, 5000, 1, 3, 77, 8924], &large, &[5000, 8924]);
+//     check_difference(&large, &[], &large);
+//     check_difference(&large, &[-1], &large);
+//     check_difference(&large, &[100], &large);
+// }
 
-#[test]
-fn test_difference_size_hint() {
-    let s246 = BTreeSet::from([2, 4, 6]);
-    let s23456 = BTreeSet::from_iter(2..=6);
-    let mut iter = s246.difference(&s23456);
-    assert_eq!(iter.size_hint(), (0, Some(3)));
-    assert_eq!(iter.next(), None);
+// #[test]
+// fn test_difference_size_hint() {
+//     let s246 = BTreeSet::from([2, 4, 6]);
+//     let s23456 = BTreeSet::from_iter(2..=6);
+//     let mut iter = s246.difference(&s23456);
+//     assert_eq!(iter.size_hint(), (0, Some(3)));
+//     assert_eq!(iter.next(), None);
 
-    let s12345 = BTreeSet::from_iter(1..=5);
-    iter = s246.difference(&s12345);
-    assert_eq!(iter.size_hint(), (0, Some(3)));
-    assert_eq!(iter.next(), Some(&6));
-    assert_eq!(iter.size_hint(), (0, Some(0)));
-    assert_eq!(iter.next(), None);
+//     let s12345 = BTreeSet::from_iter(1..=5);
+//     iter = s246.difference(&s12345);
+//     assert_eq!(iter.size_hint(), (0, Some(3)));
+//     assert_eq!(iter.next(), Some(&6));
+//     assert_eq!(iter.size_hint(), (0, Some(0)));
+//     assert_eq!(iter.next(), None);
 
-    let s34567 = BTreeSet::from_iter(3..=7);
-    iter = s246.difference(&s34567);
-    assert_eq!(iter.size_hint(), (0, Some(3)));
-    assert_eq!(iter.next(), Some(&2));
-    assert_eq!(iter.size_hint(), (0, Some(2)));
-    assert_eq!(iter.next(), None);
+//     let s34567 = BTreeSet::from_iter(3..=7);
+//     iter = s246.difference(&s34567);
+//     assert_eq!(iter.size_hint(), (0, Some(3)));
+//     assert_eq!(iter.next(), Some(&2));
+//     assert_eq!(iter.size_hint(), (0, Some(2)));
+//     assert_eq!(iter.next(), None);
 
-    let s1 = BTreeSet::from_iter(-9..=1);
-    iter = s246.difference(&s1);
-    assert_eq!(iter.size_hint(), (3, Some(3)));
+//     let s1 = BTreeSet::from_iter(-9..=1);
+//     iter = s246.difference(&s1);
+//     assert_eq!(iter.size_hint(), (3, Some(3)));
 
-    let s2 = BTreeSet::from_iter(-9..=2);
-    iter = s246.difference(&s2);
-    assert_eq!(iter.size_hint(), (2, Some(2)));
-    assert_eq!(iter.next(), Some(&4));
-    assert_eq!(iter.size_hint(), (1, Some(1)));
+//     let s2 = BTreeSet::from_iter(-9..=2);
+//     iter = s246.difference(&s2);
+//     assert_eq!(iter.size_hint(), (2, Some(2)));
+//     assert_eq!(iter.next(), Some(&4));
+//     assert_eq!(iter.size_hint(), (1, Some(1)));
 
-    let s23 = BTreeSet::from([2, 3]);
-    iter = s246.difference(&s23);
-    assert_eq!(iter.size_hint(), (1, Some(3)));
-    assert_eq!(iter.next(), Some(&4));
-    assert_eq!(iter.size_hint(), (1, Some(1)));
+//     let s23 = BTreeSet::from([2, 3]);
+//     iter = s246.difference(&s23);
+//     assert_eq!(iter.size_hint(), (1, Some(3)));
+//     assert_eq!(iter.next(), Some(&4));
+//     assert_eq!(iter.size_hint(), (1, Some(1)));
 
-    let s4 = BTreeSet::from([4]);
-    iter = s246.difference(&s4);
-    assert_eq!(iter.size_hint(), (2, Some(3)));
-    assert_eq!(iter.next(), Some(&2));
-    assert_eq!(iter.size_hint(), (1, Some(2)));
-    assert_eq!(iter.next(), Some(&6));
-    assert_eq!(iter.size_hint(), (0, Some(0)));
-    assert_eq!(iter.next(), None);
+//     let s4 = BTreeSet::from([4]);
+//     iter = s246.difference(&s4);
+//     assert_eq!(iter.size_hint(), (2, Some(3)));
+//     assert_eq!(iter.next(), Some(&2));
+//     assert_eq!(iter.size_hint(), (1, Some(2)));
+//     assert_eq!(iter.next(), Some(&6));
+//     assert_eq!(iter.size_hint(), (0, Some(0)));
+//     assert_eq!(iter.next(), None);
 
-    let s56 = BTreeSet::from([5, 6]);
-    iter = s246.difference(&s56);
-    assert_eq!(iter.size_hint(), (1, Some(3)));
-    assert_eq!(iter.next(), Some(&2));
-    assert_eq!(iter.size_hint(), (0, Some(2)));
+//     let s56 = BTreeSet::from([5, 6]);
+//     iter = s246.difference(&s56);
+//     assert_eq!(iter.size_hint(), (1, Some(3)));
+//     assert_eq!(iter.next(), Some(&2));
+//     assert_eq!(iter.size_hint(), (0, Some(2)));
 
-    let s6 = BTreeSet::from_iter(6..=19);
-    iter = s246.difference(&s6);
-    assert_eq!(iter.size_hint(), (2, Some(2)));
-    assert_eq!(iter.next(), Some(&2));
-    assert_eq!(iter.size_hint(), (1, Some(1)));
+//     let s6 = BTreeSet::from_iter(6..=19);
+//     iter = s246.difference(&s6);
+//     assert_eq!(iter.size_hint(), (2, Some(2)));
+//     assert_eq!(iter.next(), Some(&2));
+//     assert_eq!(iter.size_hint(), (1, Some(1)));
 
-    let s7 = BTreeSet::from_iter(7..=19);
-    iter = s246.difference(&s7);
-    assert_eq!(iter.size_hint(), (3, Some(3)));
-}
+//     let s7 = BTreeSet::from_iter(7..=19);
+//     iter = s246.difference(&s7);
+//     assert_eq!(iter.size_hint(), (3, Some(3)));
+// }
 
-#[test]
-fn test_symmetric_difference() {
-    fn check_symmetric_difference(a: &[i32], b: &[i32], expected: &[i32]) {
-        check(a, b, expected, |x, y, f| x.symmetric_difference(y).all(f))
-    }
+// #[test]
+// fn test_symmetric_difference() {
+//     fn check_symmetric_difference(a: &[i32], b: &[i32], expected: &[i32]) {
+//         check(a, b, expected, |x, y, f| x.symmetric_difference(y).all(f))
+//     }
 
-    check_symmetric_difference(&[], &[], &[]);
-    check_symmetric_difference(&[1, 2, 3], &[2], &[1, 3]);
-    check_symmetric_difference(&[2], &[1, 2, 3], &[1, 3]);
-    check_symmetric_difference(
-        &[1, 3, 5, 9, 11],
-        &[-2, 3, 9, 14, 22],
-        &[-2, 1, 5, 11, 14, 22],
-    );
-}
+//     check_symmetric_difference(&[], &[], &[]);
+//     check_symmetric_difference(&[1, 2, 3], &[2], &[1, 3]);
+//     check_symmetric_difference(&[2], &[1, 2, 3], &[1, 3]);
+//     check_symmetric_difference(
+//         &[1, 3, 5, 9, 11],
+//         &[-2, 3, 9, 14, 22],
+//         &[-2, 1, 5, 11, 14, 22],
+//     );
+// }
 
-#[test]
-fn test_symmetric_difference_size_hint() {
-    let x = BTreeSet::from([2, 4]);
-    let y = BTreeSet::from([1, 2, 3]);
-    let mut iter = x.symmetric_difference(&y);
-    assert_eq!(iter.size_hint(), (0, Some(5)));
-    assert_eq!(iter.next(), Some(&1));
-    assert_eq!(iter.size_hint(), (0, Some(4)));
-    assert_eq!(iter.next(), Some(&3));
-    assert_eq!(iter.size_hint(), (0, Some(1)));
-}
+// #[test]
+// fn test_symmetric_difference_size_hint() {
+//     let x = BTreeSet::from([2, 4]);
+//     let y = BTreeSet::from([1, 2, 3]);
+//     let mut iter = x.symmetric_difference(&y);
+//     assert_eq!(iter.size_hint(), (0, Some(5)));
+//     assert_eq!(iter.next(), Some(&1));
+//     assert_eq!(iter.size_hint(), (0, Some(4)));
+//     assert_eq!(iter.next(), Some(&3));
+//     assert_eq!(iter.size_hint(), (0, Some(1)));
+// }
 
-#[test]
-fn test_union() {
-    fn check_union(a: &[i32], b: &[i32], expected: &[i32]) {
-        check(a, b, expected, |x, y, f| x.union(y).all(f))
-    }
+// #[test]
+// fn test_union() {
+//     fn check_union(a: &[i32], b: &[i32], expected: &[i32]) {
+//         check(a, b, expected, |x, y, f| x.union(y).all(f))
+//     }
 
-    check_union(&[], &[], &[]);
-    check_union(&[1, 2, 3], &[2], &[1, 2, 3]);
-    check_union(&[2], &[1, 2, 3], &[1, 2, 3]);
-    check_union(
-        &[1, 3, 5, 9, 11, 16, 19, 24],
-        &[-2, 1, 5, 9, 13, 19],
-        &[-2, 1, 3, 5, 9, 11, 13, 16, 19, 24],
-    );
-}
+//     check_union(&[], &[], &[]);
+//     check_union(&[1, 2, 3], &[2], &[1, 2, 3]);
+//     check_union(&[2], &[1, 2, 3], &[1, 2, 3]);
+//     check_union(
+//         &[1, 3, 5, 9, 11, 16, 19, 24],
+//         &[-2, 1, 5, 9, 13, 19],
+//         &[-2, 1, 3, 5, 9, 11, 13, 16, 19, 24],
+//     );
+// }
 
-#[test]
-fn test_union_size_hint() {
-    let x = BTreeSet::from([2, 4]);
-    let y = BTreeSet::from([1, 2, 3]);
-    let mut iter = x.union(&y);
-    assert_eq!(iter.size_hint(), (3, Some(5)));
-    assert_eq!(iter.next(), Some(&1));
-    assert_eq!(iter.size_hint(), (2, Some(4)));
-    assert_eq!(iter.next(), Some(&2));
-    assert_eq!(iter.size_hint(), (1, Some(2)));
-}
+// #[test]
+// fn test_union_size_hint() {
+//     let x = BTreeSet::from([2, 4]);
+//     let y = BTreeSet::from([1, 2, 3]);
+//     let mut iter = x.union(&y);
+//     assert_eq!(iter.size_hint(), (3, Some(5)));
+//     assert_eq!(iter.next(), Some(&1));
+//     assert_eq!(iter.size_hint(), (2, Some(4)));
+//     assert_eq!(iter.next(), Some(&2));
+//     assert_eq!(iter.size_hint(), (1, Some(2)));
+// }
 
-#[test]
-// Only tests the simple function definition with respect to intersection
-fn test_is_disjoint() {
-    let one = BTreeSet::from([1]);
-    let two = BTreeSet::from([2]);
-    assert!(one.is_disjoint(&two));
-}
+// #[test]
+// // Only tests the simple function definition with respect to intersection
+// fn test_is_disjoint() {
+//     let one = BTreeSet::from([1]);
+//     let two = BTreeSet::from([2]);
+//     assert!(one.is_disjoint(&two));
+// }
 
-#[test]
-// Also implicitly tests the trivial function definition of is_superset
-fn test_is_subset() {
-    fn is_subset(a: &[i32], b: &[i32]) -> bool {
-        let set_a = BTreeSet::from_iter(a.iter());
-        let set_b = BTreeSet::from_iter(b.iter());
-        set_a.is_subset(&set_b)
-    }
+// #[test]
+// // Also implicitly tests the trivial function definition of is_superset
+// fn test_is_subset() {
+//     fn is_subset(a: &[i32], b: &[i32]) -> bool {
+//         let set_a = BTreeSet::from_iter(a.iter());
+//         let set_b = BTreeSet::from_iter(b.iter());
+//         set_a.is_subset(&set_b)
+//     }
 
-    assert_eq!(is_subset(&[], &[]), true);
-    assert_eq!(is_subset(&[], &[1, 2]), true);
-    assert_eq!(is_subset(&[0], &[1, 2]), false);
-    assert_eq!(is_subset(&[1], &[1, 2]), true);
-    assert_eq!(is_subset(&[2], &[1, 2]), true);
-    assert_eq!(is_subset(&[3], &[1, 2]), false);
-    assert_eq!(is_subset(&[1, 2], &[1]), false);
-    assert_eq!(is_subset(&[1, 2], &[1, 2]), true);
-    assert_eq!(is_subset(&[1, 2], &[2, 3]), false);
-    assert_eq!(
-        is_subset(
-            &[-5, 11, 22, 33, 40, 42],
-            &[-12, -5, 11, 14, 22, 23, 33, 34, 38, 39, 40, 42]
-        ),
-        true
-    );
-    assert_eq!(
-        is_subset(
-            &[-5, 11, 22, 33, 40, 42],
-            &[-12, -5, 11, 14, 22, 23, 34, 38]
-        ),
-        false
-    );
+//     assert_eq!(is_subset(&[], &[]), true);
+//     assert_eq!(is_subset(&[], &[1, 2]), true);
+//     assert_eq!(is_subset(&[0], &[1, 2]), false);
+//     assert_eq!(is_subset(&[1], &[1, 2]), true);
+//     assert_eq!(is_subset(&[2], &[1, 2]), true);
+//     assert_eq!(is_subset(&[3], &[1, 2]), false);
+//     assert_eq!(is_subset(&[1, 2], &[1]), false);
+//     assert_eq!(is_subset(&[1, 2], &[1, 2]), true);
+//     assert_eq!(is_subset(&[1, 2], &[2, 3]), false);
+//     assert_eq!(
+//         is_subset(
+//             &[-5, 11, 22, 33, 40, 42],
+//             &[-12, -5, 11, 14, 22, 23, 33, 34, 38, 39, 40, 42]
+//         ),
+//         true
+//     );
+//     assert_eq!(
+//         is_subset(
+//             &[-5, 11, 22, 33, 40, 42],
+//             &[-12, -5, 11, 14, 22, 23, 34, 38]
+//         ),
+//         false
+//     );
 
-    if cfg!(miri) {
-        // Miri is too slow
-        return;
-    }
+//     if cfg!(miri) {
+//         // Miri is too slow
+//         return;
+//     }
 
-    let large = Vec::from_iter(0..100);
-    assert_eq!(is_subset(&[], &large), true);
-    assert_eq!(is_subset(&large, &[]), false);
-    assert_eq!(is_subset(&[-1], &large), false);
-    assert_eq!(is_subset(&[0], &large), true);
-    assert_eq!(is_subset(&[1, 2], &large), true);
-    assert_eq!(is_subset(&[99, 100], &large), false);
-}
+//     let large = Vec::from_iter(0..100);
+//     assert_eq!(is_subset(&[], &large), true);
+//     assert_eq!(is_subset(&large, &[]), false);
+//     assert_eq!(is_subset(&[-1], &large), false);
+//     assert_eq!(is_subset(&[0], &large), true);
+//     assert_eq!(is_subset(&[1, 2], &large), true);
+//     assert_eq!(is_subset(&[99, 100], &large), false);
+// }
 
-#[test]
-fn test_is_superset() {
-    fn is_superset(a: &[i32], b: &[i32]) -> bool {
-        let set_a = BTreeSet::from_iter(a.iter());
-        let set_b = BTreeSet::from_iter(b.iter());
-        set_a.is_superset(&set_b)
-    }
+// #[test]
+// fn test_is_superset() {
+//     fn is_superset(a: &[i32], b: &[i32]) -> bool {
+//         let set_a = BTreeSet::from_iter(a.iter());
+//         let set_b = BTreeSet::from_iter(b.iter());
+//         set_a.is_superset(&set_b)
+//     }
 
-    assert_eq!(is_superset(&[], &[]), true);
-    assert_eq!(is_superset(&[], &[1, 2]), false);
-    assert_eq!(is_superset(&[0], &[1, 2]), false);
-    assert_eq!(is_superset(&[1], &[1, 2]), false);
-    assert_eq!(is_superset(&[4], &[1, 2]), false);
-    assert_eq!(is_superset(&[1, 4], &[1, 2]), false);
-    assert_eq!(is_superset(&[1, 2], &[1, 2]), true);
-    assert_eq!(is_superset(&[1, 2, 3], &[1, 3]), true);
-    assert_eq!(is_superset(&[1, 2, 3], &[]), true);
-    assert_eq!(is_superset(&[-1, 1, 2, 3], &[-1, 3]), true);
+//     assert_eq!(is_superset(&[], &[]), true);
+//     assert_eq!(is_superset(&[], &[1, 2]), false);
+//     assert_eq!(is_superset(&[0], &[1, 2]), false);
+//     assert_eq!(is_superset(&[1], &[1, 2]), false);
+//     assert_eq!(is_superset(&[4], &[1, 2]), false);
+//     assert_eq!(is_superset(&[1, 4], &[1, 2]), false);
+//     assert_eq!(is_superset(&[1, 2], &[1, 2]), true);
+//     assert_eq!(is_superset(&[1, 2, 3], &[1, 3]), true);
+//     assert_eq!(is_superset(&[1, 2, 3], &[]), true);
+//     assert_eq!(is_superset(&[-1, 1, 2, 3], &[-1, 3]), true);
 
-    if cfg!(miri) {
-        // Miri is too slow
-        return;
-    }
+//     if cfg!(miri) {
+//         // Miri is too slow
+//         return;
+//     }
 
-    let large = Vec::from_iter(0..100);
-    assert_eq!(is_superset(&[], &large), false);
-    assert_eq!(is_superset(&large, &[]), true);
-    assert_eq!(is_superset(&large, &[1]), true);
-    assert_eq!(is_superset(&large, &[50, 99]), true);
-    assert_eq!(is_superset(&large, &[100]), false);
-    assert_eq!(is_superset(&large, &[0, 99]), true);
-    assert_eq!(is_superset(&[-1], &large), false);
-    assert_eq!(is_superset(&[0], &large), false);
-    assert_eq!(is_superset(&[99, 100], &large), false);
-}
+//     let large = Vec::from_iter(0..100);
+//     assert_eq!(is_superset(&[], &large), false);
+//     assert_eq!(is_superset(&large, &[]), true);
+//     assert_eq!(is_superset(&large, &[1]), true);
+//     assert_eq!(is_superset(&large, &[50, 99]), true);
+//     assert_eq!(is_superset(&large, &[100]), false);
+//     assert_eq!(is_superset(&large, &[0, 99]), true);
+//     assert_eq!(is_superset(&[-1], &large), false);
+//     assert_eq!(is_superset(&[0], &large), false);
+//     assert_eq!(is_superset(&[99, 100], &large), false);
+// }
 
 #[test]
 fn test_retain() {
@@ -435,8 +437,8 @@ fn test_drain_filter_pred_panic_leak() {
     assert_eq!(b.dropped(), 0);
     assert_eq!(c.dropped(), 0);
     assert_eq!(set.len(), 2);
-    assert_eq!(set.first().unwrap().id(), 1);
-    assert_eq!(set.last().unwrap().id(), 2);
+    // assert_eq!(set.first().unwrap().id(), 1);
+    // assert_eq!(set.last().unwrap().id(), 2);
 }
 
 #[test]
@@ -767,20 +769,20 @@ fn test_append() {
 
 #[test]
 fn test_first_last() {
-    let mut a = BTreeSet::new();
-    assert_eq!(a.first(), None);
-    assert_eq!(a.last(), None);
-    a.insert(1);
-    assert_eq!(a.first(), Some(&1));
-    assert_eq!(a.last(), Some(&1));
-    a.insert(2);
-    assert_eq!(a.first(), Some(&1));
-    assert_eq!(a.last(), Some(&2));
-    for i in 3..=12 {
-        a.insert(i);
-    }
-    assert_eq!(a.first(), Some(&1));
-    assert_eq!(a.last(), Some(&12));
+    // let mut a = BTreeSet::new();
+    // assert_eq!(a.first(), None);
+    // assert_eq!(a.last(), None);
+    // a.insert(1);
+    // assert_eq!(a.first(), Some(&1));
+    // assert_eq!(a.last(), Some(&1));
+    // a.insert(2);
+    // assert_eq!(a.first(), Some(&1));
+    // assert_eq!(a.last(), Some(&2));
+    // for i in 3..=12 {
+    //     a.insert(i);
+    // }
+    // assert_eq!(a.first(), Some(&1));
+    // assert_eq!(a.last(), Some(&12));
     // assert_eq!(a.pop_first(), Some(1));
     // assert_eq!(a.pop_last(), Some(12));
     // assert_eq!(a.pop_first(), Some(2));

@@ -1260,64 +1260,68 @@ mod test_drain_filter {
         assert_eq!(c.dropped(), 1);
     }
 
-    #[test]
-    fn pred_panic_leak() {
-        let a = CrashTestDummy::new(0);
-        let b = CrashTestDummy::new(1);
-        let c = CrashTestDummy::new(2);
-        let mut map = BTreeMap::new();
-        map.insert(a.spawn(Panic::Never), ());
-        map.insert(b.spawn(Panic::InQuery), ());
-        map.insert(c.spawn(Panic::InQuery), ());
+    // This test uses unstable methods we removed.
+    //
+    // #[test]
+    // fn pred_panic_leak() {
+    //     let a = CrashTestDummy::new(0);
+    //     let b = CrashTestDummy::new(1);
+    //     let c = CrashTestDummy::new(2);
+    //     let mut map = BTreeMap::new();
+    //     map.insert(a.spawn(Panic::Never), ());
+    //     map.insert(b.spawn(Panic::InQuery), ());
+    //     map.insert(c.spawn(Panic::InQuery), ());
+    //
+    //     catch_unwind(AssertUnwindSafe(|| {
+    //         drop(map.drain_filter(|dummy, _| dummy.query(true)))
+    //     }))
+    //     .unwrap_err();
+    //
+    //     assert_eq!(a.queried(), 1);
+    //     assert_eq!(b.queried(), 1);
+    //     assert_eq!(c.queried(), 0);
+    //     assert_eq!(a.dropped(), 1);
+    //     assert_eq!(b.dropped(), 0);
+    //     assert_eq!(c.dropped(), 0);
+    //     assert_eq!(map.len(), 2);
+    //     assert_eq!(map.first_entry().unwrap().key().id(), 1);
+    //     assert_eq!(map.last_entry().unwrap().key().id(), 2);
+    //     map.check();
+    // }
 
-        catch_unwind(AssertUnwindSafe(|| {
-            drop(map.drain_filter(|dummy, _| dummy.query(true)))
-        }))
-        .unwrap_err();
-
-        assert_eq!(a.queried(), 1);
-        assert_eq!(b.queried(), 1);
-        assert_eq!(c.queried(), 0);
-        assert_eq!(a.dropped(), 1);
-        assert_eq!(b.dropped(), 0);
-        assert_eq!(c.dropped(), 0);
-        assert_eq!(map.len(), 2);
-        assert_eq!(map.first_entry().unwrap().key().id(), 1);
-        assert_eq!(map.last_entry().unwrap().key().id(), 2);
-        map.check();
-    }
-
-    // Same as above, but attempt to use the iterator again after the panic in the predicate
-    #[test]
-    fn pred_panic_reuse() {
-        let a = CrashTestDummy::new(0);
-        let b = CrashTestDummy::new(1);
-        let c = CrashTestDummy::new(2);
-        let mut map = BTreeMap::new();
-        map.insert(a.spawn(Panic::Never), ());
-        map.insert(b.spawn(Panic::InQuery), ());
-        map.insert(c.spawn(Panic::InQuery), ());
-
-        {
-            let mut it = map.drain_filter(|dummy, _| dummy.query(true));
-            catch_unwind(AssertUnwindSafe(|| while it.next().is_some() {})).unwrap_err();
-            // Iterator behaviour after a panic is explicitly unspecified,
-            // so this is just the current implementation:
-            let result = catch_unwind(AssertUnwindSafe(|| it.next()));
-            assert!(matches!(result, Ok(None)));
-        }
-
-        assert_eq!(a.queried(), 1);
-        assert_eq!(b.queried(), 1);
-        assert_eq!(c.queried(), 0);
-        assert_eq!(a.dropped(), 1);
-        assert_eq!(b.dropped(), 0);
-        assert_eq!(c.dropped(), 0);
-        assert_eq!(map.len(), 2);
-        assert_eq!(map.first_entry().unwrap().key().id(), 1);
-        assert_eq!(map.last_entry().unwrap().key().id(), 2);
-        map.check();
-    }
+    // This test uses unstable methods we removed.
+    //
+    // // Same as above, but attempt to use the iterator again after the panic in the predicate
+    // #[test]
+    // fn pred_panic_reuse() {
+    //     let a = CrashTestDummy::new(0);
+    //     let b = CrashTestDummy::new(1);
+    //     let c = CrashTestDummy::new(2);
+    //     let mut map = BTreeMap::new();
+    //     map.insert(a.spawn(Panic::Never), ());
+    //     map.insert(b.spawn(Panic::InQuery), ());
+    //     map.insert(c.spawn(Panic::InQuery), ());
+    //
+    //     {
+    //         let mut it = map.drain_filter(|dummy, _| dummy.query(true));
+    //         catch_unwind(AssertUnwindSafe(|| while it.next().is_some() {})).unwrap_err();
+    //         // Iterator behaviour after a panic is explicitly unspecified,
+    //         // so this is just the current implementation:
+    //         let result = catch_unwind(AssertUnwindSafe(|| it.next()));
+    //         assert!(matches!(result, Ok(None)));
+    //     }
+    //
+    //     assert_eq!(a.queried(), 1);
+    //     assert_eq!(b.queried(), 1);
+    //     assert_eq!(c.queried(), 0);
+    //     assert_eq!(a.dropped(), 1);
+    //     assert_eq!(b.dropped(), 0);
+    //     assert_eq!(c.dropped(), 0);
+    //     assert_eq!(map.len(), 2);
+    //     assert_eq!(map.first_entry().unwrap().key().id(), 1);
+    //     assert_eq!(map.last_entry().unwrap().key().id(), 2);
+    //     map.check();
+    // }
 }
 
 #[test]
@@ -2007,96 +2011,100 @@ fn test_vacant_entry_no_insert() {
     a.check();
 }
 
-#[test]
-fn test_first_last_entry() {
-    let mut a = BTreeMap::new();
-    assert!(a.first_entry().is_none());
-    assert!(a.last_entry().is_none());
-    a.insert(1, 42);
-    assert_eq!(a.first_entry().unwrap().key(), &1);
-    assert_eq!(a.last_entry().unwrap().key(), &1);
-    a.insert(2, 24);
-    assert_eq!(a.first_entry().unwrap().key(), &1);
-    assert_eq!(a.last_entry().unwrap().key(), &2);
-    a.insert(0, 6);
-    assert_eq!(a.first_entry().unwrap().key(), &0);
-    assert_eq!(a.last_entry().unwrap().key(), &2);
-    let (k1, v1) = a.first_entry().unwrap().remove_entry();
-    assert_eq!(k1, 0);
-    assert_eq!(v1, 6);
-    let (k2, v2) = a.last_entry().unwrap().remove_entry();
-    assert_eq!(k2, 2);
-    assert_eq!(v2, 24);
-    assert_eq!(a.first_entry().unwrap().key(), &1);
-    assert_eq!(a.last_entry().unwrap().key(), &1);
-    a.check();
-}
+// This test uses unstable methods we removed.
+//
+// #[test]
+// fn test_first_last_entry() {
+//     let mut a = BTreeMap::new();
+//     assert!(a.first_entry().is_none());
+//     assert!(a.last_entry().is_none());
+//     a.insert(1, 42);
+//     assert_eq!(a.first_entry().unwrap().key(), &1);
+//     assert_eq!(a.last_entry().unwrap().key(), &1);
+//     a.insert(2, 24);
+//     assert_eq!(a.first_entry().unwrap().key(), &1);
+//     assert_eq!(a.last_entry().unwrap().key(), &2);
+//     a.insert(0, 6);
+//     assert_eq!(a.first_entry().unwrap().key(), &0);
+//     assert_eq!(a.last_entry().unwrap().key(), &2);
+//     let (k1, v1) = a.first_entry().unwrap().remove_entry();
+//     assert_eq!(k1, 0);
+//     assert_eq!(v1, 6);
+//     let (k2, v2) = a.last_entry().unwrap().remove_entry();
+//     assert_eq!(k2, 2);
+//     assert_eq!(v2, 24);
+//     assert_eq!(a.first_entry().unwrap().key(), &1);
+//     assert_eq!(a.last_entry().unwrap().key(), &1);
+//     a.check();
+// }
 
-#[test]
-fn test_pop_first_last() {
-    let mut map = BTreeMap::new();
-    assert_eq!(map.pop_first(), None);
-    assert_eq!(map.pop_last(), None);
+// This test uses unstable methods we removed.
+//
+// #[test]
+// fn test_pop_first_last() {
+//     let mut map = BTreeMap::new();
+//     assert_eq!(map.pop_first(), None);
+//     assert_eq!(map.pop_last(), None);
 
-    map.insert(1, 10);
-    map.insert(2, 20);
-    map.insert(3, 30);
-    map.insert(4, 40);
+//     map.insert(1, 10);
+//     map.insert(2, 20);
+//     map.insert(3, 30);
+//     map.insert(4, 40);
 
-    assert_eq!(map.len(), 4);
+//     assert_eq!(map.len(), 4);
 
-    let (key, val) = map.pop_first().unwrap();
-    assert_eq!(key, 1);
-    assert_eq!(val, 10);
-    assert_eq!(map.len(), 3);
+//     let (key, val) = map.pop_first().unwrap();
+//     assert_eq!(key, 1);
+//     assert_eq!(val, 10);
+//     assert_eq!(map.len(), 3);
 
-    let (key, val) = map.pop_first().unwrap();
-    assert_eq!(key, 2);
-    assert_eq!(val, 20);
-    assert_eq!(map.len(), 2);
-    let (key, val) = map.pop_last().unwrap();
-    assert_eq!(key, 4);
-    assert_eq!(val, 40);
-    assert_eq!(map.len(), 1);
+//     let (key, val) = map.pop_first().unwrap();
+//     assert_eq!(key, 2);
+//     assert_eq!(val, 20);
+//     assert_eq!(map.len(), 2);
+//     let (key, val) = map.pop_last().unwrap();
+//     assert_eq!(key, 4);
+//     assert_eq!(val, 40);
+//     assert_eq!(map.len(), 1);
 
-    map.insert(5, 50);
-    map.insert(6, 60);
-    assert_eq!(map.len(), 3);
+//     map.insert(5, 50);
+//     map.insert(6, 60);
+//     assert_eq!(map.len(), 3);
 
-    let (key, val) = map.pop_first().unwrap();
-    assert_eq!(key, 3);
-    assert_eq!(val, 30);
-    assert_eq!(map.len(), 2);
+//     let (key, val) = map.pop_first().unwrap();
+//     assert_eq!(key, 3);
+//     assert_eq!(val, 30);
+//     assert_eq!(map.len(), 2);
 
-    let (key, val) = map.pop_last().unwrap();
-    assert_eq!(key, 6);
-    assert_eq!(val, 60);
-    assert_eq!(map.len(), 1);
+//     let (key, val) = map.pop_last().unwrap();
+//     assert_eq!(key, 6);
+//     assert_eq!(val, 60);
+//     assert_eq!(map.len(), 1);
 
-    let (key, val) = map.pop_last().unwrap();
-    assert_eq!(key, 5);
-    assert_eq!(val, 50);
-    assert_eq!(map.len(), 0);
+//     let (key, val) = map.pop_last().unwrap();
+//     assert_eq!(key, 5);
+//     assert_eq!(val, 50);
+//     assert_eq!(map.len(), 0);
 
-    assert_eq!(map.pop_first(), None);
-    assert_eq!(map.pop_last(), None);
+//     assert_eq!(map.pop_first(), None);
+//     assert_eq!(map.pop_last(), None);
 
-    map.insert(7, 70);
-    map.insert(8, 80);
+//     map.insert(7, 70);
+//     map.insert(8, 80);
 
-    let (key, val) = map.pop_last().unwrap();
-    assert_eq!(key, 8);
-    assert_eq!(val, 80);
-    assert_eq!(map.len(), 1);
+//     let (key, val) = map.pop_last().unwrap();
+//     assert_eq!(key, 8);
+//     assert_eq!(val, 80);
+//     assert_eq!(map.len(), 1);
 
-    let (key, val) = map.pop_last().unwrap();
-    assert_eq!(key, 7);
-    assert_eq!(val, 70);
-    assert_eq!(map.len(), 0);
+//     let (key, val) = map.pop_last().unwrap();
+//     assert_eq!(key, 7);
+//     assert_eq!(val, 70);
+//     assert_eq!(map.len(), 0);
 
-    assert_eq!(map.pop_first(), None);
-    assert_eq!(map.pop_last(), None);
-}
+//     assert_eq!(map.pop_first(), None);
+//     assert_eq!(map.pop_last(), None);
+// }
 
 #[test]
 fn test_get_key_value() {
@@ -2151,20 +2159,22 @@ fn test_insert_into_full_height_1() {
     }
 }
 
-#[test]
-fn test_try_insert() {
-    let mut map = BTreeMap::new();
+// This test uses unstable methods we removed.
+//
+// #[test]
+// fn test_try_insert() {
+//     let mut map = BTreeMap::new();
 
-    assert!(map.is_empty());
+//     assert!(map.is_empty());
 
-    assert_eq!(map.try_insert(1, 10).unwrap(), &10);
-    assert_eq!(map.try_insert(2, 20).unwrap(), &20);
+//     assert_eq!(map.try_insert(1, 10).unwrap(), &10);
+//     assert_eq!(map.try_insert(2, 20).unwrap(), &20);
 
-    let err = map.try_insert(2, 200).unwrap_err();
-    assert_eq!(err.entry.key(), &2);
-    assert_eq!(err.entry.get(), &20);
-    assert_eq!(err.value, 200);
-}
+//     let err = map.try_insert(2, 200).unwrap_err();
+//     assert_eq!(err.entry.key(), &2);
+//     assert_eq!(err.entry.get(), &20);
+//     assert_eq!(err.value, 200);
+// }
 
 macro_rules! create_append_test {
     ($name:ident, $len:expr) => {
@@ -2295,37 +2305,41 @@ fn test_split_off_empty_left() {
     assert!(right.into_iter().eq(data));
 }
 
-// In a tree with 3 levels, if all but a part of the first leaf node is split off,
-// make sure fix_top eliminates both top levels.
-#[test]
-fn test_split_off_tiny_left_height_2() {
-    let pairs = (0..MIN_INSERTS_HEIGHT_2).map(|i| (i, i));
-    let mut left = BTreeMap::from_iter(pairs.clone());
-    let right = left.split_off(&1);
-    left.check();
-    right.check();
-    assert_eq!(left.len(), 1);
-    assert_eq!(right.len(), MIN_INSERTS_HEIGHT_2 - 1);
-    assert_eq!(*left.first_key_value().unwrap().0, 0);
-    assert_eq!(*right.first_key_value().unwrap().0, 1);
-}
+// This test uses unstable methods we removed.
+//
+// // In a tree with 3 levels, if all but a part of the first leaf node is split off,
+// // make sure fix_top eliminates both top levels.
+// #[test]
+// fn test_split_off_tiny_left_height_2() {
+//     let pairs = (0..MIN_INSERTS_HEIGHT_2).map(|i| (i, i));
+//     let mut left = BTreeMap::from_iter(pairs.clone());
+//     let right = left.split_off(&1);
+//     left.check();
+//     right.check();
+//     assert_eq!(left.len(), 1);
+//     assert_eq!(right.len(), MIN_INSERTS_HEIGHT_2 - 1);
+//     assert_eq!(*left.first_key_value().unwrap().0, 0);
+//     assert_eq!(*right.first_key_value().unwrap().0, 1);
+// }
 
-// In a tree with 3 levels, if only part of the last leaf node is split off,
-// make sure fix_top eliminates both top levels.
-#[test]
-fn test_split_off_tiny_right_height_2() {
-    let pairs = (0..MIN_INSERTS_HEIGHT_2).map(|i| (i, i));
-    let last = MIN_INSERTS_HEIGHT_2 - 1;
-    let mut left = BTreeMap::from_iter(pairs.clone());
-    assert_eq!(*left.last_key_value().unwrap().0, last);
-    let right = left.split_off(&last);
-    left.check();
-    right.check();
-    assert_eq!(left.len(), MIN_INSERTS_HEIGHT_2 - 1);
-    assert_eq!(right.len(), 1);
-    assert_eq!(*left.last_key_value().unwrap().0, last - 1);
-    assert_eq!(*right.last_key_value().unwrap().0, last);
-}
+// This test uses unstable methods we removed.
+//
+// // In a tree with 3 levels, if only part of the last leaf node is split off,
+// // make sure fix_top eliminates both top levels.
+// #[test]
+// fn test_split_off_tiny_right_height_2() {
+//     let pairs = (0..MIN_INSERTS_HEIGHT_2).map(|i| (i, i));
+//     let last = MIN_INSERTS_HEIGHT_2 - 1;
+//     let mut left = BTreeMap::from_iter(pairs.clone());
+//     assert_eq!(*left.last_key_value().unwrap().0, last);
+//     let right = left.split_off(&last);
+//     left.check();
+//     right.check();
+//     assert_eq!(left.len(), MIN_INSERTS_HEIGHT_2 - 1);
+//     assert_eq!(right.len(), 1);
+//     assert_eq!(*left.last_key_value().unwrap().0, last - 1);
+//     assert_eq!(*right.last_key_value().unwrap().0, last);
+// }
 
 #[test]
 fn test_split_off_halfway() {
