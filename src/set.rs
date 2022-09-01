@@ -78,10 +78,7 @@ use crate::alloc::{Allocator, Global};
 /// ```
 
 #[cfg_attr(not(test), rustc_diagnostic_item = "BTreeSet")]
-pub struct BTreeSet<
-    T,
-    #[unstable(feature = "allocator_api", issue = "32838")] A: Allocator + Clone = Global,
-> {
+pub struct BTreeSet<T> {
     map: BTreeMap<T, SetValZST, A>,
 }
 
@@ -150,10 +147,7 @@ impl<T: fmt::Debug> fmt::Debug for Iter<'_, T> {
 /// [`IntoIterator`]: core::iter::IntoIterator
 
 #[derive(Debug)]
-pub struct IntoIter<
-    T,
-    #[unstable(feature = "allocator_api", issue = "32838")] A: Allocator + Clone = Global,
-> {
+pub struct IntoIter<T> {
     iter: super::map::IntoIter<T, SetValZST, A>,
 }
 
@@ -179,11 +173,7 @@ pub struct Range<'a, T: 'a> {
 #[must_use = "this returns the difference as an iterator, \
               without modifying either input set"]
 
-pub struct Difference<
-    'a,
-    T: 'a,
-    #[unstable(feature = "allocator_api", issue = "32838")] A: Allocator + Clone = Global,
-> {
+pub struct Difference<'a, T: 'a> {
     inner: DifferenceInner<'a, T, A>,
 }
 enum DifferenceInner<'a, T: 'a, A: Allocator + Clone> {
@@ -257,11 +247,7 @@ impl<T: fmt::Debug> fmt::Debug for SymmetricDifference<'_, T> {
 #[must_use = "this returns the intersection as an iterator, \
               without modifying either input set"]
 
-pub struct Intersection<
-    'a,
-    T: 'a,
-    #[unstable(feature = "allocator_api", issue = "32838")] A: Allocator + Clone = Global,
-> {
+pub struct Intersection<'a, T: 'a> {
     inner: IntersectionInner<'a, T, A>,
 }
 enum IntersectionInner<'a, T: 'a, A: Allocator + Clone> {
@@ -345,7 +331,6 @@ impl<T> BTreeSet<T> {
     /// let mut set: BTreeSet<i32> = BTreeSet::new();
     /// ```
 
-    #[rustc_const_unstable(feature = "const_btree_new", issue = "71835")]
     #[must_use]
     pub const fn new() -> BTreeSet<T> {
         BTreeSet {
@@ -355,26 +340,6 @@ impl<T> BTreeSet<T> {
 }
 
 impl<T, A: Allocator + Clone> BTreeSet<T, A> {
-    /// Makes a new `BTreeSet` with a reasonable choice of B.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # #![allow(unused_mut)]
-    /// # #![feature(allocator_api)]
-    /// # #![feature(btreemap_alloc)]
-    /// use std::collections::BTreeSet;
-    /// use std::alloc::Global;
-    ///
-    /// let mut set: BTreeSet<i32> = BTreeSet::new_in(Global);
-    /// ```
-    #[unstable(feature = "btreemap_alloc", issue = "32838")]
-    pub fn new_in(alloc: A) -> BTreeSet<T, A> {
-        BTreeSet {
-            map: BTreeMap::new_in(alloc),
-        }
-    }
-
     /// Constructs a double-ended iterator over a sub-range of elements in the set.
     /// The simplest way is to use the range syntax `min..max`, thus `range(min..max)` will
     /// yield elements from min (inclusive) to max (exclusive).
@@ -402,7 +367,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// }
     /// assert_eq!(Some(&5), set.range(4..).next());
     /// ```
-
     pub fn range<K: ?Sized, R>(&self, range: R) -> Range<'_, T>
     where
         K: Ord,
@@ -434,7 +398,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// let diff: Vec<_> = a.difference(&b).cloned().collect();
     /// assert_eq!(diff, [1]);
     /// ```
-
     pub fn difference<'a>(&'a self, other: &'a BTreeSet<T, A>) -> Difference<'a, T, A>
     where
         T: Ord,
@@ -502,7 +465,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// let sym_diff: Vec<_> = a.symmetric_difference(&b).cloned().collect();
     /// assert_eq!(sym_diff, [1, 3]);
     /// ```
-
     pub fn symmetric_difference<'a>(
         &'a self,
         other: &'a BTreeSet<T, A>,
@@ -533,7 +495,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// let intersection: Vec<_> = a.intersection(&b).cloned().collect();
     /// assert_eq!(intersection, [2]);
     /// ```
-
     pub fn intersection<'a>(&'a self, other: &'a BTreeSet<T, A>) -> Intersection<'a, T, A>
     where
         T: Ord,
@@ -597,7 +558,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// let union: Vec<_> = a.union(&b).cloned().collect();
     /// assert_eq!(union, [1, 2]);
     /// ```
-
     pub fn union<'a>(&'a self, other: &'a BTreeSet<T, A>) -> Union<'a, T>
     where
         T: Ord,
@@ -617,7 +577,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// v.clear();
     /// assert!(v.is_empty());
     /// ```
-
     pub fn clear(&mut self)
     where
         A: Clone,
@@ -640,7 +599,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(set.contains(&1), true);
     /// assert_eq!(set.contains(&4), false);
     /// ```
-
     pub fn contains<Q: ?Sized>(&self, value: &Q) -> bool
     where
         T: Borrow<Q> + Ord,
@@ -665,7 +623,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(set.get(&2), Some(&2));
     /// assert_eq!(set.get(&4), None);
     /// ```
-
     pub fn get<Q: ?Sized>(&self, value: &Q) -> Option<&T>
     where
         T: Borrow<Q> + Ord,
@@ -692,7 +649,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(a.is_disjoint(&b), false);
     /// ```
     #[must_use]
-
     pub fn is_disjoint(&self, other: &BTreeSet<T, A>) -> bool
     where
         T: Ord,
@@ -718,7 +674,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(set.is_subset(&sup), false);
     /// ```
     #[must_use]
-
     pub fn is_subset(&self, other: &BTreeSet<T, A>) -> bool
     where
         T: Ord,
@@ -798,116 +753,11 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(set.is_superset(&sub), true);
     /// ```
     #[must_use]
-
     pub fn is_superset(&self, other: &BTreeSet<T, A>) -> bool
     where
         T: Ord,
     {
         other.is_subset(self)
-    }
-
-    /// Returns a reference to the first element in the set, if any.
-    /// This element is always the minimum of all elements in the set.
-    ///
-    /// # Examples
-    ///
-    /// Basic usage:
-    ///
-    /// ```
-    /// #![feature(map_first_last)]
-    /// use std::collections::BTreeSet;
-    ///
-    /// let mut set = BTreeSet::new();
-    /// assert_eq!(set.first(), None);
-    /// set.insert(1);
-    /// assert_eq!(set.first(), Some(&1));
-    /// set.insert(2);
-    /// assert_eq!(set.first(), Some(&1));
-    /// ```
-    #[must_use]
-    #[unstable(feature = "map_first_last", issue = "62924")]
-    pub fn first(&self) -> Option<&T>
-    where
-        T: Ord,
-    {
-        self.map.first_key_value().map(|(k, _)| k)
-    }
-
-    /// Returns a reference to the last element in the set, if any.
-    /// This element is always the maximum of all elements in the set.
-    ///
-    /// # Examples
-    ///
-    /// Basic usage:
-    ///
-    /// ```
-    /// #![feature(map_first_last)]
-    /// use std::collections::BTreeSet;
-    ///
-    /// let mut set = BTreeSet::new();
-    /// assert_eq!(set.last(), None);
-    /// set.insert(1);
-    /// assert_eq!(set.last(), Some(&1));
-    /// set.insert(2);
-    /// assert_eq!(set.last(), Some(&2));
-    /// ```
-    #[must_use]
-    #[unstable(feature = "map_first_last", issue = "62924")]
-    pub fn last(&self) -> Option<&T>
-    where
-        T: Ord,
-    {
-        self.map.last_key_value().map(|(k, _)| k)
-    }
-
-    /// Removes the first element from the set and returns it, if any.
-    /// The first element is always the minimum element in the set.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// #![feature(map_first_last)]
-    /// use std::collections::BTreeSet;
-    ///
-    /// let mut set = BTreeSet::new();
-    ///
-    /// set.insert(1);
-    /// while let Some(n) = set.pop_first() {
-    ///     assert_eq!(n, 1);
-    /// }
-    /// assert!(set.is_empty());
-    /// ```
-    #[unstable(feature = "map_first_last", issue = "62924")]
-    pub fn pop_first(&mut self) -> Option<T>
-    where
-        T: Ord,
-    {
-        self.map.pop_first().map(|kv| kv.0)
-    }
-
-    /// Removes the last element from the set and returns it, if any.
-    /// The last element is always the maximum element in the set.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// #![feature(map_first_last)]
-    /// use std::collections::BTreeSet;
-    ///
-    /// let mut set = BTreeSet::new();
-    ///
-    /// set.insert(1);
-    /// while let Some(n) = set.pop_last() {
-    ///     assert_eq!(n, 1);
-    /// }
-    /// assert!(set.is_empty());
-    /// ```
-    #[unstable(feature = "map_first_last", issue = "62924")]
-    pub fn pop_last(&mut self) -> Option<T>
-    where
-        T: Ord,
-    {
-        self.map.pop_last().map(|kv| kv.0)
     }
 
     /// Adds a value to the set.
@@ -934,7 +784,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(set.insert(2), false);
     /// assert_eq!(set.len(), 1);
     /// ```
-
     pub fn insert(&mut self, value: T) -> bool
     where
         T: Ord,
@@ -957,7 +806,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// set.replace(Vec::with_capacity(10));
     /// assert_eq!(set.get(&[][..]).unwrap().capacity(), 10);
     /// ```
-
     pub fn replace(&mut self, value: T) -> Option<T>
     where
         T: Ord,
@@ -983,7 +831,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(set.remove(&2), true);
     /// assert_eq!(set.remove(&2), false);
     /// ```
-
     pub fn remove<Q: ?Sized>(&mut self, value: &Q) -> bool
     where
         T: Borrow<Q> + Ord,
@@ -1008,7 +855,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(set.take(&2), Some(2));
     /// assert_eq!(set.take(&2), None);
     /// ```
-
     pub fn take<Q: ?Sized>(&mut self, value: &Q) -> Option<T>
     where
         T: Borrow<Q> + Ord,
@@ -1032,7 +878,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// set.retain(|&k| k % 2 == 0);
     /// assert!(set.iter().eq([2, 4, 6].iter()));
     /// ```
-
     pub fn retain<F>(&mut self, mut f: F)
     where
         T: Ord,
@@ -1069,7 +914,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert!(a.contains(&4));
     /// assert!(a.contains(&5));
     /// ```
-
     pub fn append(&mut self, other: &mut Self)
     where
         T: Ord,
@@ -1107,7 +951,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert!(b.contains(&17));
     /// assert!(b.contains(&41));
     /// ```
-
     pub fn split_off<Q: ?Sized + Ord>(&mut self, value: &Q) -> Self
     where
         T: Borrow<Q> + Ord,
@@ -1116,45 +959,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
         BTreeSet {
             map: self.map.split_off(value),
         }
-    }
-
-    /// Creates an iterator that visits all elements in ascending order and
-    /// uses a closure to determine if an element should be removed.
-    ///
-    /// If the closure returns `true`, the element is removed from the set and
-    /// yielded. If the closure returns `false`, or panics, the element remains
-    /// in the set and will not be yielded.
-    ///
-    /// If the iterator is only partially consumed or not consumed at all, each
-    /// of the remaining elements is still subjected to the closure and removed
-    /// and dropped if it returns `true`.
-    ///
-    /// It is unspecified how many more elements will be subjected to the
-    /// closure if a panic occurs in the closure, or if a panic occurs while
-    /// dropping an element, or if the `DrainFilter` itself is leaked.
-    ///
-    /// # Examples
-    ///
-    /// Splitting a set into even and odd values, reusing the original set:
-    ///
-    /// ```
-    /// #![feature(btree_drain_filter)]
-    /// use std::collections::BTreeSet;
-    ///
-    /// let mut set: BTreeSet<i32> = (0..8).collect();
-    /// let evens: BTreeSet<_> = set.drain_filter(|v| v % 2 == 0).collect();
-    /// let odds = set;
-    /// assert_eq!(evens.into_iter().collect::<Vec<_>>(), vec![0, 2, 4, 6]);
-    /// assert_eq!(odds.into_iter().collect::<Vec<_>>(), vec![1, 3, 5, 7]);
-    /// ```
-    #[unstable(feature = "btree_drain_filter", issue = "70530")]
-    pub fn drain_filter<'a, F>(&'a mut self, pred: F) -> DrainFilter<'a, T, F, A>
-    where
-        T: Ord,
-        F: 'a + FnMut(&T) -> bool,
-    {
-        let (inner, alloc) = self.map.drain_filter_inner();
-        DrainFilter { pred, inner, alloc }
     }
 
     /// Gets an iterator that visits the elements in the `BTreeSet` in ascending
@@ -1185,7 +989,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(set_iter.next(), Some(&3));
     /// assert_eq!(set_iter.next(), None);
     /// ```
-
     pub fn iter(&self) -> Iter<'_, T> {
         Iter {
             iter: self.map.keys(),
@@ -1205,7 +1008,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert_eq!(v.len(), 1);
     /// ```
     #[must_use]
-    #[rustc_const_unstable(feature = "const_btree_new", issue = "71835")]
     pub const fn len(&self) -> usize {
         self.map.len()
     }
@@ -1223,7 +1025,6 @@ impl<T, A: Allocator + Clone> BTreeSet<T, A> {
     /// assert!(!v.is_empty());
     /// ```
     #[must_use]
-    #[rustc_const_unstable(feature = "const_btree_new", issue = "71835")]
     pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -1304,72 +1105,6 @@ impl<'a, T, A: Allocator + Clone> IntoIterator for &'a BTreeSet<T, A> {
     fn into_iter(self) -> Iter<'a, T> {
         self.iter()
     }
-}
-
-/// An iterator produced by calling `drain_filter` on BTreeSet.
-#[unstable(feature = "btree_drain_filter", issue = "70530")]
-pub struct DrainFilter<
-    'a,
-    T,
-    F,
-    #[unstable(feature = "allocator_api", issue = "32838")] A: Allocator + Clone = Global,
-> where
-    T: 'a,
-    F: 'a + FnMut(&T) -> bool,
-{
-    pred: F,
-    inner: super::map::DrainFilterInner<'a, T, SetValZST>,
-    /// The BTreeMap will outlive this IntoIter so we don't care about drop order for `alloc`.
-    alloc: A,
-}
-
-#[unstable(feature = "btree_drain_filter", issue = "70530")]
-impl<T, F, A: Allocator + Clone> Drop for DrainFilter<'_, T, F, A>
-where
-    F: FnMut(&T) -> bool,
-{
-    fn drop(&mut self) {
-        self.for_each(drop);
-    }
-}
-
-#[unstable(feature = "btree_drain_filter", issue = "70530")]
-impl<T, F, A: Allocator + Clone> fmt::Debug for DrainFilter<'_, T, F, A>
-where
-    T: fmt::Debug,
-    F: FnMut(&T) -> bool,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("DrainFilter")
-            .field(&self.inner.peek().map(|(k, _)| k))
-            .finish()
-    }
-}
-
-#[unstable(feature = "btree_drain_filter", issue = "70530")]
-impl<'a, T, F, A: Allocator + Clone> Iterator for DrainFilter<'_, T, F, A>
-where
-    F: 'a + FnMut(&T) -> bool,
-{
-    type Item = T;
-
-    fn next(&mut self) -> Option<T> {
-        let pred = &mut self.pred;
-        let mut mapped_pred = |k: &T, _v: &mut SetValZST| pred(k);
-        self.inner
-            .next(&mut mapped_pred, self.alloc.clone())
-            .map(|(k, _)| k)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
-    }
-}
-
-#[unstable(feature = "btree_drain_filter", issue = "70530")]
-impl<T, F, A: Allocator + Clone> FusedIterator for DrainFilter<'_, T, F, A> where
-    F: FnMut(&T) -> bool
-{
 }
 
 impl<T: Ord, A: Allocator + Clone> Extend<T> for BTreeSet<T, A> {
