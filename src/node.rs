@@ -924,7 +924,9 @@ fn splitpoint(edge_idx: usize) -> (usize, LeftOrRight<usize>) {
     debug_assert!(edge_idx <= CAPACITY);
     // Rust issue #74834 tries to explain these symmetric rules.
     match edge_idx {
-        0..EDGE_IDX_LEFT_OF_CENTER => (KV_IDX_CENTER - 1, LeftOrRight::Left(edge_idx)),
+        x if 0 <= x && x < EDGE_IDX_LEFT_OF_CENTER => {
+            (KV_IDX_CENTER - 1, LeftOrRight::Left(edge_idx))
+        }
         EDGE_IDX_LEFT_OF_CENTER => (KV_IDX_CENTER, LeftOrRight::Left(edge_idx)),
         EDGE_IDX_RIGHT_OF_CENTER => (KV_IDX_CENTER, LeftOrRight::Right(0)),
         _ => (
