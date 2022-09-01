@@ -2,7 +2,7 @@ use core::fmt::{self, Debug};
 use core::marker::PhantomData;
 use core::mem;
 
-use crate::alloc::{Allocator, Global};
+use crate::alloc::ArenaAllocator;
 
 use super::super::borrow::DormantMutRef;
 use super::super::node::{marker, Handle, NodeRef};

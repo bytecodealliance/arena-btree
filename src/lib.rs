@@ -1,3 +1,4 @@
+mod alloc;
 mod append;
 mod borrow;
 mod dedup_sorted_iter;

@@ -15,7 +15,7 @@ use super::merge_iter::MergeIterInner;
 use super::set_val::SetValZST;
 use super::Recover;
 
-use crate::alloc::{Allocator, Global};
+use crate::alloc::ArenaAllocator;
 
 // FIXME(conventions): implement bounded iterators
 

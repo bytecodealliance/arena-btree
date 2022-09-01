@@ -5,7 +5,7 @@ use core::ptr;
 
 use super::node::{marker, ForceResult::*, Handle, NodeRef};
 
-use crate::alloc::Allocator;
+use crate::alloc::ArenaAllocator;
 // `front` and `back` are always both `None` or both `Some`.
 pub struct LeafRange<BorrowType, K, V> {
     front: Option<Handle<NodeRef<BorrowType, K, V, marker::Leaf>, marker::Edge>>,

@@ -8,7 +8,7 @@ use core::mem::{self, ManuallyDrop};
 use core::ops::{Index, RangeBounds};
 use core::ptr;
 
-use crate::alloc::{Allocator, Global};
+use crate::alloc::ArenaAllocator;
 
 use super::borrow::DormantMutRef;
 use super::dedup_sorted_iter::DedupSortedIter;

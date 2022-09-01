@@ -31,12 +31,12 @@
 //   since leaf edges are empty and need no data representation. In an internal node,
 //   an edge both identifies a position and contains a pointer to a child node.
 
+use crate::alloc::ArenaAllocator;
 use core::marker::PhantomData;
 use core::mem::{self, MaybeUninit};
 use core::ptr::{self, NonNull};
 use core::slice::SliceIndex;
-
-use crate::alloc::{Allocator, Layout};
+use std::alloc::Layout;
 
 const B: usize = 6;
 pub const CAPACITY: usize = 2 * B - 1;
