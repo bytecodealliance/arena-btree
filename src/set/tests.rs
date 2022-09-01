@@ -781,21 +781,21 @@ fn test_first_last() {
     }
     assert_eq!(a.first(), Some(&1));
     assert_eq!(a.last(), Some(&12));
-    assert_eq!(a.pop_first(), Some(1));
-    assert_eq!(a.pop_last(), Some(12));
-    assert_eq!(a.pop_first(), Some(2));
-    assert_eq!(a.pop_last(), Some(11));
-    assert_eq!(a.pop_first(), Some(3));
-    assert_eq!(a.pop_last(), Some(10));
-    assert_eq!(a.pop_first(), Some(4));
-    assert_eq!(a.pop_first(), Some(5));
-    assert_eq!(a.pop_first(), Some(6));
-    assert_eq!(a.pop_first(), Some(7));
-    assert_eq!(a.pop_first(), Some(8));
-    assert_eq!(a.clone().pop_last(), Some(9));
-    assert_eq!(a.pop_first(), Some(9));
-    assert_eq!(a.pop_first(), None);
-    assert_eq!(a.pop_last(), None);
+    // assert_eq!(a.pop_first(), Some(1));
+    // assert_eq!(a.pop_last(), Some(12));
+    // assert_eq!(a.pop_first(), Some(2));
+    // assert_eq!(a.pop_last(), Some(11));
+    // assert_eq!(a.pop_first(), Some(3));
+    // assert_eq!(a.pop_last(), Some(10));
+    // assert_eq!(a.pop_first(), Some(4));
+    // assert_eq!(a.pop_first(), Some(5));
+    // assert_eq!(a.pop_first(), Some(6));
+    // assert_eq!(a.pop_first(), Some(7));
+    // assert_eq!(a.pop_first(), Some(8));
+    // assert_eq!(a.clone().pop_last(), Some(9));
+    // assert_eq!(a.pop_first(), Some(9));
+    // assert_eq!(a.pop_first(), None);
+    // assert_eq!(a.pop_last(), None);
 }
 
 // Unlike the function with the same name in map/tests, returns no values.
