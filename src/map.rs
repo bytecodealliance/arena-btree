@@ -173,7 +173,7 @@ pub struct BTreeMap<K, V> {
     _marker: PhantomData<Box<(K, V)>>,
 }
 
-unsafe impl<K, V> Drop for BTreeMap<K, V> {
+impl<K, V> Drop for BTreeMap<K, V> {
     fn drop(&mut self) {
         drop(unsafe { ptr::read(self) }.into_iter())
     }
