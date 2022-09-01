@@ -19,7 +19,7 @@ use super::set_val::SetValZST;
 
 mod entry;
 
-pub use entry::{Entry, OccupiedEntry, OccupiedError, VacantEntry};
+pub use entry::{Entry, OccupiedEntry, VacantEntry};
 
 use Entry::*;
 
