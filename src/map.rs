@@ -173,7 +173,7 @@ pub struct BTreeMap<K, V> {
     /// `ManuallyDrop` to control drop order (needs to be dropped after all the nodes).
     pub(super) alloc: ManuallyDrop<A>,
     // For dropck; the `Box` avoids making the `Unpin` impl more strict than before
-    _marker: PhantomData<crate::boxed::Box<(K, V)>>,
+    _marker: PhantomData<Box<(K, V)>>,
 }
 
 unsafe impl<#[may_dangle] K, #[may_dangle] V, A: Allocator + Clone> Drop for BTreeMap<K, V, A> {
