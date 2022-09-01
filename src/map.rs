@@ -195,7 +195,7 @@ impl<K: Clone, V: Clone> Clone for BTreeMap<K, V> {
     fn clone(&self) -> BTreeMap<K, V> {
         fn clone_subtree<'a, K: Clone, V: Clone>(
             node: NodeRef<marker::Immut<'a>, K, V, marker::LeafOrInternal>,
-            alloc: ArenaAllocator,
+            mut alloc: ArenaAllocator,
         ) -> BTreeMap<K, V>
         where
             K: 'a,
@@ -573,7 +573,7 @@ impl<K, V> BTreeMap<K, V> {
         BTreeMap {
             root: None,
             length: 0,
-            alloc: ManuallyDrop::new(ArenaAllocator::default()),
+            alloc: ManuallyDrop::new(ArenaAllocator::new()),
             _marker: PhantomData,
         }
     }
@@ -1637,7 +1637,7 @@ impl<'a, K, V> DrainFilterInner<'a, K, V> {
             if pred(k, v) {
                 *self.length -= 1;
                 let (kv, pos) = kv.remove_kv_tracking(
-                    || {
+                    |alloc| {
                         // SAFETY: we will touch the root in a way that will not
                         // invalidate the position returned.
                         let root = unsafe { self.dormant_root.take().unwrap().awaken() };

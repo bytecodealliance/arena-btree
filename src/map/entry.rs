@@ -272,7 +272,7 @@ impl<'a, K: Ord, V> VacantEntry<'a, K, V> {
     /// }
     /// assert_eq!(map["poneyland"], 37);
     /// ```
-    pub fn insert(self, value: V) -> &'a mut V {
+    pub fn insert(mut self, value: V) -> &'a mut V {
         let out_ptr = match self.handle {
             None => {
                 // SAFETY: There is no tree yet so no reference to it exists.
@@ -468,11 +468,11 @@ impl<'a, K: Ord, V> OccupiedEntry<'a, K, V> {
     }
 
     // Body of `remove_entry`, probably separate because the name reflects the returned pair.
-    pub(super) fn remove_kv(self) -> (K, V) {
+    pub(super) fn remove_kv(mut self) -> (K, V) {
         let mut emptied_internal_root = false;
         let (old_kv, _) = self
             .handle
-            .remove_kv_tracking(|| emptied_internal_root = true, &mut self.alloc);
+            .remove_kv_tracking(|_alloc| emptied_internal_root = true, &mut self.alloc);
         // SAFETY: we consumed the intermediate root borrow, `self.handle`.
         let map = unsafe { self.dormant_map.awaken() };
         map.length -= 1;

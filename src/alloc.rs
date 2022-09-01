@@ -5,6 +5,10 @@ use std::{alloc::Layout, mem::MaybeUninit, ptr::NonNull};
 pub(crate) struct ArenaAllocator;
 
 impl ArenaAllocator {
+    pub const fn new() -> Self {
+        ArenaAllocator
+    }
+
     pub fn deallocate(&mut self, ptr: NonNull<u8>, layout: Layout) {
         todo!();
     }
