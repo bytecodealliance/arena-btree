@@ -112,7 +112,7 @@ impl<K, V> BTreeMap<K, V> {
         K: Ord,
     {
         let iter = mem::take(self).into_iter();
-        if !iter.len() == 0 {
+        if iter.len() != 0 {
             self.root.insert(Root::new(&mut *self.alloc)).bulk_push(
                 iter,
                 &mut self.length,
@@ -985,7 +985,7 @@ fn test_range_mut() {
     map.check();
 }
 
-#[should_panic(expected = "range start is greater than range end in BTreeMap")]
+#[should_panic(expected = "range start is greater than range end in BTree{Set,Map}")]
 #[test]
 fn test_range_panic_1() {
     let mut map = BTreeMap::new();
@@ -996,7 +996,7 @@ fn test_range_panic_1() {
     let _invalid_range = map.range((Included(&8), Included(&3)));
 }
 
-#[should_panic(expected = "range start and end are equal and excluded in BTreeMap")]
+#[should_panic(expected = "range start and end are equal and excluded in BTree{Set,Map}")]
 #[test]
 fn test_range_panic_2() {
     let mut map = BTreeMap::new();
@@ -1007,7 +1007,7 @@ fn test_range_panic_2() {
     let _invalid_range = map.range((Excluded(&5), Excluded(&5)));
 }
 
-#[should_panic(expected = "range start and end are equal and excluded in BTreeMap")]
+#[should_panic(expected = "range start and end are equal and excluded in BTree{Set,Map}")]
 #[test]
 fn test_range_panic_3() {
     let mut map: BTreeMap<i32, ()> = BTreeMap::new();
@@ -1391,10 +1391,10 @@ fn test_borrow() {
         v.remove_entry(t);
     }
 
-    #[allow(dead_code)]
-    fn split_off<T: Ord>(v: &mut BTreeMap<Box<T>, ()>, t: &T) {
-        v.split_off(t);
-    }
+    // #[allow(dead_code)]
+    // fn split_off<T: Ord>(v: &mut BTreeMap<Box<T>, ()>, t: &T) {
+    //     v.split_off(t);
+    // }
 }
 
 #[test]
@@ -2144,8 +2144,11 @@ fn test_insert_into_full_height_0() {
 fn test_insert_into_full_height_1() {
     let size = node::CAPACITY + 1 + node::CAPACITY;
     for pos in 0..=size {
+        dbg!(size);
         let mut map = BTreeMap::from_iter((0..size).map(|i| (i * 2 + 1, ())));
+        dbg!(map.root.is_some());
         map.compact();
+        dbg!(map.root.is_some());
         let root_node = map.root.as_ref().unwrap().reborrow();
         assert_eq!(root_node.len(), 1);
         assert_eq!(
@@ -2277,33 +2280,33 @@ fn rand_data(len: usize) -> Vec<(u32, u32)> {
     Vec::from_iter((0..len).map(|_| (rng.next(), rng.next())))
 }
 
-#[test]
-fn test_split_off_empty_right() {
-    let mut data = rand_data(173);
+// #[test]
+// fn test_split_off_empty_right() {
+//     let mut data = rand_data(173);
 
-    let mut map = BTreeMap::from_iter(data.clone());
-    let right = map.split_off(&(data.iter().max().unwrap().0 + 1));
-    map.check();
-    right.check();
+//     let mut map = BTreeMap::from_iter(data.clone());
+//     let right = map.split_off(&(data.iter().max().unwrap().0 + 1));
+//     map.check();
+//     right.check();
 
-    data.sort();
-    assert!(map.into_iter().eq(data));
-    assert!(right.into_iter().eq(None));
-}
+//     data.sort();
+//     assert!(map.into_iter().eq(data));
+//     assert!(right.into_iter().eq(None));
+// }
 
-#[test]
-fn test_split_off_empty_left() {
-    let mut data = rand_data(314);
+// #[test]
+// fn test_split_off_empty_left() {
+//     let mut data = rand_data(314);
 
-    let mut map = BTreeMap::from_iter(data.clone());
-    let right = map.split_off(&data.iter().min().unwrap().0);
-    map.check();
-    right.check();
+//     let mut map = BTreeMap::from_iter(data.clone());
+//     let right = map.split_off(&data.iter().min().unwrap().0);
+//     map.check();
+//     right.check();
 
-    data.sort();
-    assert!(map.into_iter().eq(None));
-    assert!(right.into_iter().eq(data));
-}
+//     data.sort();
+//     assert!(map.into_iter().eq(None));
+//     assert!(right.into_iter().eq(data));
+// }
 
 // This test uses unstable methods we removed.
 //
@@ -2341,49 +2344,49 @@ fn test_split_off_empty_left() {
 //     assert_eq!(*right.last_key_value().unwrap().0, last);
 // }
 
-#[test]
-fn test_split_off_halfway() {
-    let mut rng = DeterministicRng::new();
-    for &len in &[node::CAPACITY, 25, 50, 75, 100] {
-        let mut data = Vec::from_iter((0..len).map(|_| (rng.next(), ())));
-        // Insertion in non-ascending order creates some variation in node length.
-        let mut map = BTreeMap::from_iter(data.iter().copied());
-        data.sort();
-        let small_keys = data.iter().take(len / 2).map(|kv| kv.0);
-        let large_keys = data.iter().skip(len / 2).map(|kv| kv.0);
-        let split_key = large_keys.clone().next().unwrap();
-        let right = map.split_off(&split_key);
-        map.check();
-        right.check();
-        assert!(map.keys().copied().eq(small_keys));
-        assert!(right.keys().copied().eq(large_keys));
-    }
-}
+// #[test]
+// fn test_split_off_halfway() {
+//     let mut rng = DeterministicRng::new();
+//     for &len in &[node::CAPACITY, 25, 50, 75, 100] {
+//         let mut data = Vec::from_iter((0..len).map(|_| (rng.next(), ())));
+//         // Insertion in non-ascending order creates some variation in node length.
+//         let mut map = BTreeMap::from_iter(data.iter().copied());
+//         data.sort();
+//         let small_keys = data.iter().take(len / 2).map(|kv| kv.0);
+//         let large_keys = data.iter().skip(len / 2).map(|kv| kv.0);
+//         let split_key = large_keys.clone().next().unwrap();
+//         let right = map.split_off(&split_key);
+//         map.check();
+//         right.check();
+//         assert!(map.keys().copied().eq(small_keys));
+//         assert!(right.keys().copied().eq(large_keys));
+//     }
+// }
 
-#[test]
-fn test_split_off_large_random_sorted() {
-    // Miri is too slow
-    let mut data = if cfg!(miri) {
-        rand_data(529)
-    } else {
-        rand_data(1529)
-    };
-    // special case with maximum height.
-    data.sort();
+// #[test]
+// fn test_split_off_large_random_sorted() {
+//     // Miri is too slow
+//     let mut data = if cfg!(miri) {
+//         rand_data(529)
+//     } else {
+//         rand_data(1529)
+//     };
+//     // special case with maximum height.
+//     data.sort();
 
-    let mut map = BTreeMap::from_iter(data.clone());
-    let key = data[data.len() / 2].0;
-    let right = map.split_off(&key);
-    map.check();
-    right.check();
+//     let mut map = BTreeMap::from_iter(data.clone());
+//     let key = data[data.len() / 2].0;
+//     let right = map.split_off(&key);
+//     map.check();
+//     right.check();
 
-    assert!(map
-        .into_iter()
-        .eq(data.clone().into_iter().filter(|x| x.0 < key)));
-    assert!(right
-        .into_iter()
-        .eq(data.into_iter().filter(|x| x.0 >= key)));
-}
+//     assert!(map
+//         .into_iter()
+//         .eq(data.clone().into_iter().filter(|x| x.0 < key)));
+//     assert!(right
+//         .into_iter()
+//         .eq(data.into_iter().filter(|x| x.0 >= key)));
+// }
 
 #[test]
 fn test_into_iter_drop_leak_height_0() {

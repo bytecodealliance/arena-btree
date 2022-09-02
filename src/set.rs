@@ -909,43 +909,43 @@ impl<T> BTreeSet<T> {
         self.map.append(&mut other.map);
     }
 
-    /// Splits the collection into two at the value. Returns a new collection
-    /// with all elements greater than or equal to the value.
-    ///
-    /// # Examples
-    ///
-    /// Basic usage:
-    ///
-    /// ```
-    /// use std::collections::BTreeSet;
-    ///
-    /// let mut a = BTreeSet::new();
-    /// a.insert(1);
-    /// a.insert(2);
-    /// a.insert(3);
-    /// a.insert(17);
-    /// a.insert(41);
-    ///
-    /// let b = a.split_off(&3);
-    ///
-    /// assert_eq!(a.len(), 2);
-    /// assert_eq!(b.len(), 3);
-    ///
-    /// assert!(a.contains(&1));
-    /// assert!(a.contains(&2));
-    ///
-    /// assert!(b.contains(&3));
-    /// assert!(b.contains(&17));
-    /// assert!(b.contains(&41));
-    /// ```
-    pub fn split_off<Q: ?Sized + Ord>(&mut self, value: &Q) -> Self
-    where
-        T: Borrow<Q> + Ord,
-    {
-        BTreeSet {
-            map: self.map.split_off(value),
-        }
-    }
+    // /// Splits the collection into two at the value. Returns a new collection
+    // /// with all elements greater than or equal to the value.
+    // ///
+    // /// # Examples
+    // ///
+    // /// Basic usage:
+    // ///
+    // /// ```
+    // /// use std::collections::BTreeSet;
+    // ///
+    // /// let mut a = BTreeSet::new();
+    // /// a.insert(1);
+    // /// a.insert(2);
+    // /// a.insert(3);
+    // /// a.insert(17);
+    // /// a.insert(41);
+    // ///
+    // /// let b = a.split_off(&3);
+    // ///
+    // /// assert_eq!(a.len(), 2);
+    // /// assert_eq!(b.len(), 3);
+    // ///
+    // /// assert!(a.contains(&1));
+    // /// assert!(a.contains(&2));
+    // ///
+    // /// assert!(b.contains(&3));
+    // /// assert!(b.contains(&17));
+    // /// assert!(b.contains(&41));
+    // /// ```
+    // pub fn split_off<Q: ?Sized + Ord>(&mut self, value: &Q) -> Self
+    // where
+    //     T: Borrow<Q> + Ord,
+    // {
+    //     BTreeSet {
+    //         map: self.map.split_off(value),
+    //     }
+    // }
 
     /// Creates an iterator that visits all elements in ascending order and
     /// uses a closure to determine if an element should be removed.

@@ -242,18 +242,28 @@ impl<K: Clone, V: Clone> Clone for BTreeMap<K, V> {
 
                             let k = (*k).clone();
                             let v = (*v).clone();
+                            let alloc = mem::replace(
+                                &mut out_tree.alloc,
+                                ManuallyDrop::new(ArenaAllocator::default()),
+                            );
                             let subtree =
-                                clone_subtree(in_edge.descend(), ArenaAllocator::default());
+                                clone_subtree(in_edge.descend(), ManuallyDrop::into_inner(alloc));
 
                             // We can't destructure subtree directly
                             // because BTreeMap implements Drop
-                            let (subroot, sublength) = unsafe {
-                                todo!("FITZGEN: this is going to leak the arena I think");
-                                let subtree = ManuallyDrop::new(subtree);
+                            let (subroot, sublength, alloc) = unsafe {
+                                let mut subtree = ManuallyDrop::new(subtree);
                                 let root = ptr::read(&subtree.root);
                                 let length = subtree.length;
-                                (root, length)
+                                let alloc = mem::replace(
+                                    &mut subtree.alloc,
+                                    ManuallyDrop::new(ArenaAllocator::default()),
+                                );
+                                (root, length, alloc)
                             };
+
+                            let temp_alloc = mem::replace(&mut out_tree.alloc, alloc);
+                            debug_assert!(temp_alloc.has_empty_capacity());
 
                             out_node.push(
                                 k,
@@ -1114,60 +1124,60 @@ impl<K, V> BTreeMap<K, V> {
         }
     }
 
-    /// Splits the collection into two at the given key. Returns everything after the given key,
-    /// including the key.
-    ///
-    /// # Examples
-    ///
-    /// Basic usage:
-    ///
-    /// ```
-    /// use std::collections::BTreeMap;
-    ///
-    /// let mut a = BTreeMap::new();
-    /// a.insert(1, "a");
-    /// a.insert(2, "b");
-    /// a.insert(3, "c");
-    /// a.insert(17, "d");
-    /// a.insert(41, "e");
-    ///
-    /// let b = a.split_off(&3);
-    ///
-    /// assert_eq!(a.len(), 2);
-    /// assert_eq!(b.len(), 3);
-    ///
-    /// assert_eq!(a[&1], "a");
-    /// assert_eq!(a[&2], "b");
-    ///
-    /// assert_eq!(b[&3], "c");
-    /// assert_eq!(b[&17], "d");
-    /// assert_eq!(b[&41], "e");
-    /// ```
-    pub fn split_off<Q: ?Sized + Ord>(&mut self, key: &Q) -> Self
-    where
-        K: Borrow<Q> + Ord,
-    {
-        todo!("FITZGEN: will need to manage the arena here");
+    // /// Splits the collection into two at the given key. Returns everything after the given key,
+    // /// including the key.
+    // ///
+    // /// # Examples
+    // ///
+    // /// Basic usage:
+    // ///
+    // /// ```
+    // /// use std::collections::BTreeMap;
+    // ///
+    // /// let mut a = BTreeMap::new();
+    // /// a.insert(1, "a");
+    // /// a.insert(2, "b");
+    // /// a.insert(3, "c");
+    // /// a.insert(17, "d");
+    // /// a.insert(41, "e");
+    // ///
+    // /// let b = a.split_off(&3);
+    // ///
+    // /// assert_eq!(a.len(), 2);
+    // /// assert_eq!(b.len(), 3);
+    // ///
+    // /// assert_eq!(a[&1], "a");
+    // /// assert_eq!(a[&2], "b");
+    // ///
+    // /// assert_eq!(b[&3], "c");
+    // /// assert_eq!(b[&17], "d");
+    // /// assert_eq!(b[&41], "e");
+    // /// ```
+    // pub fn split_off<Q: ?Sized + Ord>(&mut self, key: &Q) -> Self
+    // where
+    //     K: Borrow<Q> + Ord,
+    // {
+    //     todo!("FITZGEN: will need to manage the arena here");
 
-        if self.is_empty() {
-            return Self::new();
-        }
+    //     if self.is_empty() {
+    //         return Self::new();
+    //     }
 
-        let total_num = self.len();
-        let left_root = self.root.as_mut().unwrap(); // unwrap succeeds because not empty
+    //     let total_num = self.len();
+    //     let left_root = self.root.as_mut().unwrap(); // unwrap succeeds because not empty
 
-        let right_root = left_root.split_off(key, &mut self.alloc);
+    //     let right_root = left_root.split_off(key, &mut self.alloc);
 
-        let (new_left_len, right_len) = Root::calc_split_length(total_num, &left_root, &right_root);
-        self.length = new_left_len;
+    //     let (new_left_len, right_len) = Root::calc_split_length(total_num, &left_root, &right_root);
+    //     self.length = new_left_len;
 
-        BTreeMap {
-            root: Some(right_root),
-            length: right_len,
-            alloc: todo!("FITZGEN"), // self.alloc.clone(),
-            _marker: PhantomData,
-        }
-    }
+    //     BTreeMap {
+    //         root: Some(right_root),
+    //         length: right_len,
+    //         alloc: todo!("FITZGEN"), // self.alloc.clone(),
+    //         _marker: PhantomData,
+    //     }
+    // }
 
     /// Creates a consuming iterator visiting all the keys, in sorted order.
     /// The map cannot be used after calling this.

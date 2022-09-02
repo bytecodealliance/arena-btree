@@ -808,50 +808,50 @@ fn rand_data(len: usize) -> Vec<u32> {
     Vec::from_iter((0..len).map(|_| rng.next()))
 }
 
-#[test]
-fn test_split_off_empty_right() {
-    let mut data = rand_data(173);
+// #[test]
+// fn test_split_off_empty_right() {
+//     let mut data = rand_data(173);
 
-    let mut set = BTreeSet::from_iter(data.clone());
-    let right = set.split_off(&(data.iter().max().unwrap() + 1));
+//     let mut set = BTreeSet::from_iter(data.clone());
+//     let right = set.split_off(&(data.iter().max().unwrap() + 1));
 
-    data.sort();
-    assert!(set.into_iter().eq(data));
-    assert!(right.into_iter().eq(None));
-}
+//     data.sort();
+//     assert!(set.into_iter().eq(data));
+//     assert!(right.into_iter().eq(None));
+// }
 
-#[test]
-fn test_split_off_empty_left() {
-    let mut data = rand_data(314);
+// #[test]
+// fn test_split_off_empty_left() {
+//     let mut data = rand_data(314);
 
-    let mut set = BTreeSet::from_iter(data.clone());
-    let right = set.split_off(data.iter().min().unwrap());
+//     let mut set = BTreeSet::from_iter(data.clone());
+//     let right = set.split_off(data.iter().min().unwrap());
 
-    data.sort();
-    assert!(set.into_iter().eq(None));
-    assert!(right.into_iter().eq(data));
-}
+//     data.sort();
+//     assert!(set.into_iter().eq(None));
+//     assert!(right.into_iter().eq(data));
+// }
 
-#[test]
-fn test_split_off_large_random_sorted() {
-    // Miri is too slow
-    let mut data = if cfg!(miri) {
-        rand_data(529)
-    } else {
-        rand_data(1529)
-    };
-    // special case with maximum height.
-    data.sort();
+// #[test]
+// fn test_split_off_large_random_sorted() {
+//     // Miri is too slow
+//     let mut data = if cfg!(miri) {
+//         rand_data(529)
+//     } else {
+//         rand_data(1529)
+//     };
+//     // special case with maximum height.
+//     data.sort();
 
-    let mut set = BTreeSet::from_iter(data.clone());
-    let key = data[data.len() / 2];
-    let right = set.split_off(&key);
+//     let mut set = BTreeSet::from_iter(data.clone());
+//     let key = data[data.len() / 2];
+//     let right = set.split_off(&key);
 
-    assert!(set
-        .into_iter()
-        .eq(data.clone().into_iter().filter(|x| *x < key)));
-    assert!(right.into_iter().eq(data.into_iter().filter(|x| *x >= key)));
-}
+//     assert!(set
+//         .into_iter()
+//         .eq(data.clone().into_iter().filter(|x| *x < key)));
+//     assert!(right.into_iter().eq(data.into_iter().filter(|x| *x >= key)));
+// }
 
 #[test]
 fn from_array() {
@@ -860,7 +860,7 @@ fn from_array() {
     assert_eq!(set, unordered_duplicates);
 }
 
-#[should_panic(expected = "range start is greater than range end in BTreeSet")]
+#[should_panic(expected = "range start is greater than range end in BTree{Set,Map}")]
 #[test]
 fn test_range_panic_1() {
     let mut set = BTreeSet::new();
@@ -871,7 +871,7 @@ fn test_range_panic_1() {
     let _invalid_range = set.range((Included(&8), Included(&3)));
 }
 
-#[should_panic(expected = "range start and end are equal and excluded in BTreeSet")]
+#[should_panic(expected = "range start and end are equal and excluded in BTree{Set,Map}")]
 #[test]
 fn test_range_panic_2() {
     let mut set = BTreeSet::new();

@@ -4,6 +4,7 @@ use std::{
     marker::PhantomData,
     mem::{ManuallyDrop, MaybeUninit},
     ptr::NonNull,
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 /// TODO
@@ -27,6 +28,9 @@ impl<K, V> ArenaAllocator<K, V> {
     }
 
     pub fn allocate_leaf_node(&mut self) -> Box<MaybeUninit<LeafNode<K, V>>> {
+        if self.leaf_nodes.items.capacity() == 0 {
+            self.leaf_nodes.items.reserve(1);
+        }
         Box::new(MaybeUninit::<LeafNode<K, V>>::uninit())
     }
 
@@ -35,6 +39,9 @@ impl<K, V> ArenaAllocator<K, V> {
     }
 
     pub fn allocate_internal_node(&mut self) -> Box<MaybeUninit<InternalNode<K, V>>> {
+        if self.internal_nodes.items.capacity() == 0 {
+            self.internal_nodes.items.reserve(1);
+        }
         Box::new(MaybeUninit::<InternalNode<K, V>>::uninit())
     }
 
@@ -43,6 +50,10 @@ impl<K, V> ArenaAllocator<K, V> {
         ptr: NonNull<MaybeUninit<InternalNode<K, V>>>,
     ) {
         drop(Box::from_raw(ptr.as_ptr()));
+    }
+
+    pub fn has_empty_capacity(&self) -> bool {
+        self.leaf_nodes.capacity() == 0 && self.internal_nodes.capacity() == 0
     }
 }
 
@@ -59,11 +70,17 @@ union MaybeFree<T> {
 struct Id<T> {
     index: NonMaxU32,
     _phantom: PhantomData<*mut T>,
+
+    #[cfg(debug_assertions)]
+    arena_id: usize,
 }
 
 struct Arena<T> {
     items: Vec<MaybeFree<T>>,
     first_free: OptionNonMaxU32,
+
+    #[cfg(debug_assertions)]
+    arena_id: Option<usize>,
 }
 
 unsafe impl<T> Sync for Arena<T> {}
@@ -80,15 +97,35 @@ impl<T> Arena<T> {
         Arena {
             items: vec![],
             first_free: OptionNonMaxU32::none(),
+
+            #[cfg(debug_assertions)]
+            arena_id: None,
         }
     }
 
     fn allocate(&mut self) -> Id<T> {
+        #[cfg(debug_assertions)]
+        if self.arena_id.is_none() {
+            static ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
+            self.arena_id = Some(ID_COUNTER.fetch_add(1, Ordering::SeqCst));
+        }
+
         todo!()
     }
 
     unsafe fn deallocate(&mut self, id: Id<T>) {
+        debug_assert_eq!(self.arena_id, Some(id.arena_id));
+
         todo!()
+    }
+
+    unsafe fn get(&self, id: Id<T>) -> *mut T {
+        debug_assert_eq!(self.arena_id, Some(id.arena_id));
+        todo!()
+    }
+
+    fn capacity(&self) -> usize {
+        self.items.capacity()
     }
 }
 
