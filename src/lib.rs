@@ -19,6 +19,12 @@ mod split;
 pub use map::BTreeMap;
 pub use set::BTreeSet;
 
+#[cfg(feature = "arbitrary")]
+mod arbitrary;
+
+#[cfg(all(feature = "arbitrary", any(fuzzing, test)))]
+pub mod differential;
+
 #[doc(hidden)]
 trait Recover<Q: ?Sized> {
     type Key;
