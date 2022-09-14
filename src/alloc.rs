@@ -9,8 +9,8 @@ use std::{
 
 /// TODO
 pub(crate) struct ArenaAllocator<K, V> {
-    leaf_nodes: Arena<LeafNode<K, V>>,
-    internal_nodes: Arena<InternalNode<K, V>>,
+    leaf_nodes: InnerArena<LeafNode<K, V>>,
+    internal_nodes: InnerArena<InternalNode<K, V>>,
 }
 
 impl<K, V> Default for ArenaAllocator<K, V> {
@@ -22,8 +22,8 @@ impl<K, V> Default for ArenaAllocator<K, V> {
 impl<K, V> ArenaAllocator<K, V> {
     pub const fn new() -> Self {
         ArenaAllocator {
-            leaf_nodes: Arena::new(),
-            internal_nodes: Arena::new(),
+            leaf_nodes: InnerArena::new(),
+            internal_nodes: InnerArena::new(),
         }
     }
 
@@ -75,7 +75,7 @@ struct Id<T> {
     arena_id: usize,
 }
 
-struct Arena<T> {
+struct InnerArena<T> {
     items: Vec<MaybeFree<T>>,
     first_free: OptionNonMaxU32,
 
@@ -83,18 +83,18 @@ struct Arena<T> {
     arena_id: Option<usize>,
 }
 
-unsafe impl<T> Sync for Arena<T> {}
-unsafe impl<T> Send for Arena<T> {}
+unsafe impl<T> Sync for InnerArena<T> {}
+unsafe impl<T> Send for InnerArena<T> {}
 
-impl<T> Default for Arena<T> {
+impl<T> Default for InnerArena<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T> Arena<T> {
+impl<T> InnerArena<T> {
     const fn new() -> Self {
-        Arena {
+        InnerArena {
             items: vec![],
             first_free: OptionNonMaxU32::none(),
 
