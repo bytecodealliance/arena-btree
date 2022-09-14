@@ -66,7 +66,7 @@ fn test_splitpoint() {
 
 #[test]
 fn test_partial_eq() {
-    let mut arena = ArenaAllocator::default();
+    let mut arena = Arena::default();
 
     let mut root1 = NodeRef::new_leaf(&mut arena);
     root1.borrow_mut().push(1, ());

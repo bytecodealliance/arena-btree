@@ -1,6 +1,6 @@
 use super::merge_iter::MergeIterInner;
 use super::node::{self, Root};
-use crate::alloc::ArenaAllocator;
+use crate::alloc::Arena;
 use core::iter::FusedIterator;
 
 impl<K, V> Root<K, V> {
@@ -20,7 +20,7 @@ impl<K, V> Root<K, V> {
         left: I,
         right: I,
         length: &mut usize,
-        alloc: &mut ArenaAllocator<K, V>,
+        alloc: &mut Arena<K, V>,
     ) where
         K: Ord,
         I: Iterator<Item = (K, V)> + FusedIterator,
@@ -39,7 +39,7 @@ impl<K, V> Root<K, V> {
         &mut self,
         iter: I,
         length: &mut usize,
-        alloc: &mut ArenaAllocator<K, V>,
+        alloc: &mut Arena<K, V>,
     ) where
         I: Iterator<Item = (K, V)>,
     {

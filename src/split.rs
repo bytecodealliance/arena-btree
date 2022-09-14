@@ -1,6 +1,6 @@
 use super::node::{ForceResult::*, Root};
 use super::search::SearchResult::*;
-use crate::alloc::ArenaAllocator;
+use crate::alloc::Arena;
 use core::borrow::Borrow;
 
 impl<K, V> Root<K, V> {
@@ -29,7 +29,7 @@ impl<K, V> Root<K, V> {
     /// and if the ordering of `Q` corresponds to that of `K`.
     /// If `self` respects all `BTreeMap` tree invariants, then both
     /// `self` and the returned tree will respect those invariants.
-    pub fn split_off<Q: ?Sized + Ord>(&mut self, key: &Q, alloc: &mut ArenaAllocator<K, V>) -> Self
+    pub fn split_off<Q: ?Sized + Ord>(&mut self, key: &Q, alloc: &mut Arena<K, V>) -> Self
     where
         K: Borrow<Q>,
     {
@@ -63,7 +63,7 @@ impl<K, V> Root<K, V> {
     }
 
     /// Creates a tree consisting of empty nodes.
-    fn new_pillar(height: usize, alloc: &mut ArenaAllocator<K, V>) -> Self {
+    fn new_pillar(height: usize, alloc: &mut Arena<K, V>) -> Self {
         let mut root = Root::new(alloc);
         for _ in 0..height {
             root.push_internal_level(alloc);

@@ -8,20 +8,20 @@ use std::{
 };
 
 /// TODO
-pub(crate) struct ArenaAllocator<K, V> {
+pub(crate) struct Arena<K, V> {
     leaf_nodes: InnerArena<LeafNode<K, V>>,
     internal_nodes: InnerArena<InternalNode<K, V>>,
 }
 
-impl<K, V> Default for ArenaAllocator<K, V> {
+impl<K, V> Default for Arena<K, V> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<K, V> ArenaAllocator<K, V> {
+impl<K, V> Arena<K, V> {
     pub const fn new() -> Self {
-        ArenaAllocator {
+        Arena {
             leaf_nodes: InnerArena::new(),
             internal_nodes: InnerArena::new(),
         }

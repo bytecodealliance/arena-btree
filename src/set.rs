@@ -5,7 +5,7 @@ use super::map::{BTreeMap, Keys};
 use super::merge_iter::MergeIterInner;
 use super::set_val::SetValZST;
 use super::Recover;
-use crate::alloc::ArenaAllocator;
+use crate::alloc::Arena;
 use core::borrow::Borrow;
 use core::cmp::Ordering::{self, Equal, Greater, Less};
 use core::cmp::{max, min};
@@ -1064,14 +1064,14 @@ impl<T: Ord> FromIterator<T> for BTreeSet<T> {
 
         // use stable sort to preserve the insertion order.
         inputs.sort();
-        BTreeSet::from_sorted_iter(inputs.into_iter(), ArenaAllocator::default())
+        BTreeSet::from_sorted_iter(inputs.into_iter(), Arena::default())
     }
 }
 
 impl<T: Ord> BTreeSet<T> {
     fn from_sorted_iter<I: Iterator<Item = T>>(
         iter: I,
-        alloc: ArenaAllocator<T, SetValZST>,
+        alloc: Arena<T, SetValZST>,
     ) -> BTreeSet<T> {
         let iter = iter.map(|k| (k, SetValZST::default()));
         let map = BTreeMap::bulk_build_from_sorted_iter(iter, alloc);
@@ -1097,7 +1097,7 @@ impl<T: Ord, const N: usize> From<[T; N]> for BTreeSet<T> {
         // use stable sort to preserve the insertion order.
         arr.sort();
         let iter = IntoIterator::into_iter(arr).map(|k| (k, SetValZST::default()));
-        let map = BTreeMap::bulk_build_from_sorted_iter(iter, ArenaAllocator::default());
+        let map = BTreeMap::bulk_build_from_sorted_iter(iter, Arena::default());
         BTreeSet { map }
     }
 }
@@ -1143,7 +1143,7 @@ where
     pred: F,
     inner: super::map::DrainFilterInner<'a, T, SetValZST>,
     /// The BTreeMap will outlive this IntoIter so we don't care about drop order for `alloc`.
-    alloc: &'a mut ArenaAllocator<T, SetValZST>,
+    alloc: &'a mut Arena<T, SetValZST>,
 }
 
 impl<T, F> Drop for DrainFilter<'_, T, F>

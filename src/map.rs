@@ -8,7 +8,7 @@ use core::mem::{self, ManuallyDrop};
 use core::ops::{Index, RangeBounds};
 use core::ptr;
 
-use crate::alloc::ArenaAllocator;
+use crate::alloc::Arena;
 
 use super::borrow::DormantMutRef;
 use super::dedup_sorted_iter::DedupSortedIter;
@@ -168,7 +168,7 @@ pub struct BTreeMap<K, V> {
     root: Option<Root<K, V>>,
     length: usize,
     /// `ManuallyDrop` to control drop order (needs to be dropped after all the nodes).
-    pub(super) alloc: ManuallyDrop<ArenaAllocator<K, V>>,
+    pub(super) alloc: ManuallyDrop<Arena<K, V>>,
     // For dropck; the `Box` avoids making the `Unpin` impl more strict than before
     _marker: PhantomData<Box<(K, V)>>,
 }
@@ -195,7 +195,7 @@ impl<K: Clone, V: Clone> Clone for BTreeMap<K, V> {
     fn clone(&self) -> BTreeMap<K, V> {
         fn clone_subtree<'a, K: Clone, V: Clone>(
             node: NodeRef<marker::Immut<'a>, K, V, marker::LeafOrInternal>,
-            mut alloc: ArenaAllocator<K, V>,
+            mut alloc: Arena<K, V>,
         ) -> BTreeMap<K, V>
         where
             K: 'a,
@@ -244,7 +244,7 @@ impl<K: Clone, V: Clone> Clone for BTreeMap<K, V> {
                             let v = (*v).clone();
                             let alloc = mem::replace(
                                 &mut out_tree.alloc,
-                                ManuallyDrop::new(ArenaAllocator::default()),
+                                ManuallyDrop::new(Arena::default()),
                             );
                             let subtree =
                                 clone_subtree(in_edge.descend(), ManuallyDrop::into_inner(alloc));
@@ -257,7 +257,7 @@ impl<K: Clone, V: Clone> Clone for BTreeMap<K, V> {
                                 let length = subtree.length;
                                 let alloc = mem::replace(
                                     &mut subtree.alloc,
-                                    ManuallyDrop::new(ArenaAllocator::default()),
+                                    ManuallyDrop::new(Arena::default()),
                                 );
                                 (root, length, alloc)
                             };
@@ -285,7 +285,7 @@ impl<K: Clone, V: Clone> Clone for BTreeMap<K, V> {
             clone_subtree(
                 // unwrap succeeds because not empty
                 self.root.as_ref().unwrap().reborrow(),
-                ArenaAllocator::default(),
+                Arena::default(),
             )
         }
     }
@@ -403,7 +403,7 @@ pub struct IntoIter<K, V> {
     length: usize,
 
     // Must be last, so it is dropped last.
-    alloc: ArenaAllocator<K, V>,
+    alloc: Arena<K, V>,
 }
 
 impl<K, V> IntoIter<K, V> {
@@ -583,7 +583,7 @@ impl<K, V> BTreeMap<K, V> {
         BTreeMap {
             root: None,
             length: 0,
-            alloc: ManuallyDrop::new(ArenaAllocator::new()),
+            alloc: ManuallyDrop::new(Arena::new()),
             _marker: PhantomData,
         }
     }
@@ -607,7 +607,7 @@ impl<K, V> BTreeMap<K, V> {
     pub fn clear(&mut self) {
         let alloc = std::mem::replace(
             &mut self.alloc,
-            ManuallyDrop::new(ArenaAllocator::default()),
+            ManuallyDrop::new(Arena::default()),
         );
         mem::drop(BTreeMap {
             root: mem::replace(&mut self.root, None),
@@ -904,7 +904,7 @@ impl<K, V> BTreeMap<K, V> {
 
     pub(super) fn drain_filter_inner(
         &mut self,
-    ) -> (DrainFilterInner<'_, K, V>, &mut ArenaAllocator<K, V>)
+    ) -> (DrainFilterInner<'_, K, V>, &mut Arena<K, V>)
     where
         K: Ord,
     {
@@ -1226,7 +1226,7 @@ impl<K, V> BTreeMap<K, V> {
     }
 
     /// Makes a `BTreeMap` from a sorted iterator.
-    pub(crate) fn bulk_build_from_sorted_iter<I>(iter: I, mut alloc: ArenaAllocator<K, V>) -> Self
+    pub(crate) fn bulk_build_from_sorted_iter<I>(iter: I, mut alloc: Arena<K, V>) -> Self
     where
         K: Ord,
         I: IntoIterator<Item = (K, V)>,
@@ -1579,7 +1579,7 @@ where
 {
     pred: F,
     inner: DrainFilterInner<'a, K, V>,
-    alloc: &'a mut ArenaAllocator<K, V>,
+    alloc: &'a mut Arena<K, V>,
 }
 /// Most of the implementation of DrainFilter are generic over the type
 /// of the predicate, thus also serving for BTreeSet::DrainFilter.
@@ -1643,7 +1643,7 @@ impl<'a, K, V> DrainFilterInner<'a, K, V> {
     pub(super) fn next<F>(
         &mut self,
         pred: &mut F,
-        alloc: &mut ArenaAllocator<K, V>,
+        alloc: &mut Arena<K, V>,
     ) -> Option<(K, V)>
     where
         F: FnMut(&K, &mut V) -> bool,
@@ -1854,7 +1854,7 @@ impl<K: Ord, V> FromIterator<(K, V)> for BTreeMap<K, V> {
 
         // use stable sort to preserve the insertion order.
         inputs.sort_by(|a, b| a.0.cmp(&b.0));
-        BTreeMap::bulk_build_from_sorted_iter(inputs, ArenaAllocator::default())
+        BTreeMap::bulk_build_from_sorted_iter(inputs, Arena::default())
     }
 }
 
@@ -1952,7 +1952,7 @@ impl<K: Ord, V, const N: usize> From<[(K, V); N]> for BTreeMap<K, V> {
 
         // use stable sort to preserve the insertion order.
         arr.sort_by(|a, b| a.0.cmp(&b.0));
-        BTreeMap::bulk_build_from_sorted_iter(arr, ArenaAllocator::default())
+        BTreeMap::bulk_build_from_sorted_iter(arr, Arena::default())
     }
 }
 

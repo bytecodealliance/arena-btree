@@ -1,5 +1,5 @@
 use super::node::{marker, ForceResult::*, Handle, NodeRef};
-use crate::alloc::ArenaAllocator;
+use crate::alloc::Arena;
 use core::borrow::Borrow;
 use core::hint;
 use core::ops::RangeBounds;
@@ -191,7 +191,7 @@ impl<K, V> LazyLeafRange<marker::Dying, K, V> {
     #[inline]
     pub unsafe fn deallocating_next_unchecked(
         &mut self,
-        alloc: &mut ArenaAllocator<K, V>,
+        alloc: &mut Arena<K, V>,
     ) -> Handle<NodeRef<marker::Dying, K, V, marker::LeafOrInternal>, marker::KV> {
         debug_assert!(self.front.is_some());
         let front = self.init_front().unwrap();
@@ -201,7 +201,7 @@ impl<K, V> LazyLeafRange<marker::Dying, K, V> {
     #[inline]
     pub unsafe fn deallocating_next_back_unchecked(
         &mut self,
-        alloc: &mut ArenaAllocator<K, V>,
+        alloc: &mut Arena<K, V>,
     ) -> Handle<NodeRef<marker::Dying, K, V, marker::LeafOrInternal>, marker::KV> {
         debug_assert!(self.back.is_some());
         let back = self.init_back().unwrap();
@@ -209,7 +209,7 @@ impl<K, V> LazyLeafRange<marker::Dying, K, V> {
     }
 
     #[inline]
-    pub fn deallocating_end(&mut self, alloc: &mut ArenaAllocator<K, V>) {
+    pub fn deallocating_end(&mut self, alloc: &mut Arena<K, V>) {
         if let Some(front) = self.take_front() {
             front.deallocating_end(alloc)
         }
@@ -466,7 +466,7 @@ impl<K, V> Handle<NodeRef<marker::Dying, K, V, marker::Leaf>, marker::Edge> {
     ///   and only valid until the next call to a `deallocating_` method.
     unsafe fn deallocating_next(
         self,
-        alloc: &mut ArenaAllocator<K, V>,
+        alloc: &mut Arena<K, V>,
     ) -> Option<(
         Self,
         Handle<NodeRef<marker::Dying, K, V, marker::LeafOrInternal>, marker::KV>,
@@ -500,7 +500,7 @@ impl<K, V> Handle<NodeRef<marker::Dying, K, V, marker::Leaf>, marker::Edge> {
     ///   and only valid until the next call to a `deallocating_` method.
     unsafe fn deallocating_next_back(
         self,
-        alloc: &mut ArenaAllocator<K, V>,
+        alloc: &mut Arena<K, V>,
     ) -> Option<(
         Self,
         Handle<NodeRef<marker::Dying, K, V, marker::LeafOrInternal>, marker::KV>,
@@ -525,7 +525,7 @@ impl<K, V> Handle<NodeRef<marker::Dying, K, V, marker::Leaf>, marker::Edge> {
     /// both sides of the tree, and have hit the same edge. As it is intended
     /// only to be called when all keys and values have been returned,
     /// no cleanup is done on any of the keys or values.
-    fn deallocating_end(self, alloc: &mut ArenaAllocator<K, V>) {
+    fn deallocating_end(self, alloc: &mut Arena<K, V>) {
         let mut edge = self.forget_node_type();
         while let Some(parent_edge) = unsafe { edge.into_node().deallocate_and_ascend(alloc) } {
             edge = parent_edge.forget_node_type();
@@ -604,7 +604,7 @@ impl<K, V> Handle<NodeRef<marker::Dying, K, V, marker::Leaf>, marker::Edge> {
     /// or call this method or counterpart `deallocating_next_back_unchecked` again.
     unsafe fn deallocating_next_unchecked(
         &mut self,
-        alloc: &mut ArenaAllocator<K, V>,
+        alloc: &mut Arena<K, V>,
     ) -> Handle<NodeRef<marker::Dying, K, V, marker::LeafOrInternal>, marker::KV> {
         super::mem::replace(self, |leaf_edge| unsafe {
             leaf_edge.deallocating_next(alloc).unwrap()
@@ -625,7 +625,7 @@ impl<K, V> Handle<NodeRef<marker::Dying, K, V, marker::Leaf>, marker::Edge> {
     /// or call this method or counterpart `deallocating_next_unchecked` again.
     unsafe fn deallocating_next_back_unchecked(
         &mut self,
-        alloc: &mut ArenaAllocator<K, V>,
+        alloc: &mut Arena<K, V>,
     ) -> Handle<NodeRef<marker::Dying, K, V, marker::LeafOrInternal>, marker::KV> {
         super::mem::replace(self, |leaf_edge| unsafe {
             leaf_edge.deallocating_next_back(alloc).unwrap()
