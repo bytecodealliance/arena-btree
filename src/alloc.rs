@@ -64,7 +64,7 @@ struct Free {
 
 union MaybeFree<T> {
     free: Free,
-    allocated: ManuallyDrop<T>,
+    allocated: ManuallyDrop<MaybeUninit<T>>,
 }
 
 struct Id<T> {
@@ -76,7 +76,19 @@ struct Id<T> {
 }
 
 struct InnerArena<T> {
+    /// The arena items.
+    ///
+    /// Each free entry points to the next free entry, if any, forming a free
+    /// list.
+    ///
+    /// Invariant: `self.items` can only grow in size, never shrink.
+    ///
+    /// Invariant: all free list indices are always within bounds.
+    ///
+    /// These two invariants allow us to omit bounds checks.
     items: Vec<MaybeFree<T>>,
+
+    /// The head of the free list.
     first_free: OptionNonMaxU32,
 
     #[cfg(debug_assertions)]
@@ -110,18 +122,150 @@ impl<T> InnerArena<T> {
             self.arena_id = Some(ID_COUNTER.fetch_add(1, Ordering::SeqCst));
         }
 
-        todo!()
+        match self.first_free.inflate() {
+            Some(index) => {
+                let len = self.items.len();
+
+                let entry = unsafe {
+                    // SAFETY: all indices in the free list are in bounds.
+                    let index = *index as usize;
+                    debug_assert!(index < len);
+                    self.items.get_unchecked_mut(index)
+                };
+
+                self.first_free = unsafe {
+                    // SAFETY: all entries in the free list are the `free` union
+                    // variant.
+                    entry.free.next_free
+                };
+
+                debug_assert!(
+                    self.first_free
+                        .inflate()
+                        .map_or(true, |idx| (*idx as usize) < len),
+                    "Invariant: all indices in the free list are in bounds"
+                );
+
+                unsafe {
+                    // SAFETY: We are allocating this entry, so it needs to
+                    // become the `allocated` union variant.
+                    std::ptr::write(
+                        entry as _,
+                        MaybeFree {
+                            allocated: ManuallyDrop::new(MaybeUninit::uninit()),
+                        },
+                    );
+                }
+
+                Id {
+                    index,
+                    _phantom: PhantomData,
+                    #[cfg(debug_assertions)]
+                    arena_id: self.arena_id.unwrap(),
+                }
+            }
+            None => {
+                let index = self.items.len();
+                let index = u32::try_from(index)
+                    .ok()
+                    .and_then(|index| NonMaxU32::new(index))
+                    .unwrap();
+                self.items.push(MaybeFree {
+                    allocated: ManuallyDrop::new(MaybeUninit::uninit()),
+                });
+
+                Id {
+                    index,
+                    _phantom: PhantomData,
+                    #[cfg(debug_assertions)]
+                    arena_id: self.arena_id.unwrap(),
+                }
+            }
+        }
     }
 
+    /// Deallocate the item with the given `id`.
+    ///
+    /// It is the caller's responsiblity to run `Drop` implementations if they
+    /// wish to.
+    ///
+    /// # Safety
+    ///
+    /// The given `id` must have been allocated from this arena.
+    ///
+    /// The given `id` must currently be allocated, and not free.
     unsafe fn deallocate(&mut self, id: Id<T>) {
         debug_assert_eq!(self.arena_id, Some(id.arena_id));
 
-        todo!()
+        let next_free = self.first_free;
+        debug_assert!(
+            next_free
+                .inflate()
+                .map_or(true, |idx| (*idx as usize) < self.items.len()),
+            "Invariant: all indices in the free list are in bounds"
+        );
+
+        let entry = unsafe {
+            // SAFETY: all id indices are in bounds.
+            let index = *id.index as usize;
+            debug_assert!(index < self.items.len());
+            self.items.get_unchecked_mut(index)
+        };
+
+        unsafe {
+            // SAFETY: This entry is no longer allocated, and is entering the
+            // free list, so it must become the `free` union variant.
+            std::ptr::write(
+                entry as _,
+                MaybeFree {
+                    free: Free { next_free },
+                },
+            );
+        }
+
+        self.first_free = id.index.into();
     }
 
-    unsafe fn get(&self, id: Id<T>) -> *mut T {
+    /// Get a shared borrow of the underlying value associated with the given
+    /// `id`.
+    ///
+    /// # Safety
+    ///
+    /// The given `id` must have been allocated from this arena.
+    ///
+    /// The given `id` must currently be allocated, and not free.
+    unsafe fn get(&self, id: Id<T>) -> &MaybeUninit<T> {
         debug_assert_eq!(self.arena_id, Some(id.arena_id));
-        todo!()
+
+        let entry = unsafe {
+            // SAFETY: all id indices are in bounds.
+            let index = *id.index as usize;
+            debug_assert!(index < self.items.len());
+            self.items.get_unchecked(index)
+        };
+
+        &*entry.allocated
+    }
+
+    /// Get an exclusive borrow of the underlying value associated with the
+    /// given `id`.
+    ///
+    /// # Safety
+    ///
+    /// The given `id` must have been allocated from this arena.
+    ///
+    /// The given `id` must currently be allocated, and not free.
+    unsafe fn get_mut(&mut self, id: Id<T>) -> &mut MaybeUninit<T> {
+        debug_assert_eq!(self.arena_id, Some(id.arena_id));
+
+        let entry = unsafe {
+            // SAFETY: all id indices are in bounds.
+            let index = *id.index as usize;
+            debug_assert!(index < self.items.len());
+            self.items.get_unchecked_mut(index)
+        };
+
+        &mut *entry.allocated
     }
 
     fn capacity(&self) -> usize {
@@ -154,6 +298,12 @@ mod non_max {
         #[inline]
         fn deref(&self) -> &Self::Target {
             &self.0
+        }
+    }
+
+    impl From<NonMaxU32> for u32 {
+        fn from(x: NonMaxU32) -> Self {
+            x.0
         }
     }
 
