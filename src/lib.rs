@@ -1,7 +1,7 @@
 #![allow(warnings)] // TODO FITZGEN: temp
 
-mod alloc;
 mod append;
+mod arena;
 mod borrow;
 mod dedup_sorted_iter;
 mod fix;

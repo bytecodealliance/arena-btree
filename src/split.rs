@@ -1,6 +1,6 @@
 use super::node::{ForceResult::*, Root};
 use super::search::SearchResult::*;
-use crate::alloc::Arena;
+use crate::arena::Arena;
 use core::borrow::Borrow;
 
 impl<K, V> Root<K, V> {

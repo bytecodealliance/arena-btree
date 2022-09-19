@@ -1,5 +1,5 @@
 use super::node::{marker, ForceResult::*, Handle, NodeRef};
-use crate::alloc::Arena;
+use crate::arena::Arena;
 use core::borrow::Borrow;
 use core::hint;
 use core::ops::RangeBounds;
