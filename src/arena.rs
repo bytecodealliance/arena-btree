@@ -7,10 +7,11 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-/// TODO
-pub(crate) struct Arena<K, V> {
+/// An arena containing BTree nodes.
+pub struct Arena<K, V> {
     leaf_nodes: InnerArena<LeafNode<K, V>>,
     internal_nodes: InnerArena<InternalNode<K, V>>,
+    // TODO FITZGEN: arena id
 }
 
 impl<K, V> Default for Arena<K, V> {
@@ -20,6 +21,7 @@ impl<K, V> Default for Arena<K, V> {
 }
 
 impl<K, V> Arena<K, V> {
+    /// Construct a new arena.
     pub const fn new() -> Self {
         Arena {
             leaf_nodes: InnerArena::new(),
@@ -27,32 +29,32 @@ impl<K, V> Arena<K, V> {
         }
     }
 
-    pub fn allocate_leaf_node(&mut self) -> Box<MaybeUninit<LeafNode<K, V>>> {
+    pub(crate) fn allocate_leaf_node(&mut self) -> Box<MaybeUninit<LeafNode<K, V>>> {
         if self.leaf_nodes.items.capacity() == 0 {
             self.leaf_nodes.items.reserve(1);
         }
         Box::new(MaybeUninit::<LeafNode<K, V>>::uninit())
     }
 
-    pub unsafe fn deallocate_leaf_node(&mut self, ptr: NonNull<MaybeUninit<LeafNode<K, V>>>) {
+    pub(crate) unsafe fn deallocate_leaf_node(&mut self, ptr: NonNull<MaybeUninit<LeafNode<K, V>>>) {
         drop(Box::from_raw(ptr.as_ptr()));
     }
 
-    pub fn allocate_internal_node(&mut self) -> Box<MaybeUninit<InternalNode<K, V>>> {
+    pub(crate) fn allocate_internal_node(&mut self) -> Box<MaybeUninit<InternalNode<K, V>>> {
         if self.internal_nodes.items.capacity() == 0 {
             self.internal_nodes.items.reserve(1);
         }
         Box::new(MaybeUninit::<InternalNode<K, V>>::uninit())
     }
 
-    pub unsafe fn deallocate_internal_node(
+    pub(crate) unsafe fn deallocate_internal_node(
         &mut self,
         ptr: NonNull<MaybeUninit<InternalNode<K, V>>>,
     ) {
         drop(Box::from_raw(ptr.as_ptr()));
     }
 
-    pub fn has_empty_capacity(&self) -> bool {
+    pub(crate) fn has_empty_capacity(&self) -> bool {
         self.leaf_nodes.capacity() == 0 && self.internal_nodes.capacity() == 0
     }
 }
@@ -234,7 +236,7 @@ impl<T> InnerArena<T> {
     /// The given `id` must have been allocated from this arena.
     ///
     /// The given `id` must currently be allocated, and not free.
-    unsafe fn get(&self, id: Id<T>) -> &MaybeUninit<T> {
+    unsafe fn get(&self, id: Id<T>) -> *const T {
         debug_assert_eq!(self.arena_id, Some(id.arena_id));
 
         let entry = unsafe {
@@ -244,7 +246,7 @@ impl<T> InnerArena<T> {
             self.items.get_unchecked(index)
         };
 
-        &*entry.allocated
+        entry.allocated.as_ptr()
     }
 
     /// Get an exclusive borrow of the underlying value associated with the
@@ -255,7 +257,7 @@ impl<T> InnerArena<T> {
     /// The given `id` must have been allocated from this arena.
     ///
     /// The given `id` must currently be allocated, and not free.
-    unsafe fn get_mut(&mut self, id: Id<T>) -> &mut MaybeUninit<T> {
+    unsafe fn get_mut(&mut self, id: Id<T>) -> *mut T {
         debug_assert_eq!(self.arena_id, Some(id.arena_id));
 
         let entry = unsafe {
@@ -265,7 +267,7 @@ impl<T> InnerArena<T> {
             self.items.get_unchecked_mut(index)
         };
 
-        &mut *entry.allocated
+        entry.allocated.as_mut_ptr()
     }
 
     fn capacity(&self) -> usize {

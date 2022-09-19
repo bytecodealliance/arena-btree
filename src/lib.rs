@@ -16,6 +16,7 @@ pub mod set;
 mod set_val;
 mod split;
 
+pub use arena::Arena;
 pub use map::BTreeMap;
 pub use set::BTreeSet;
 
