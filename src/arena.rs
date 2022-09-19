@@ -36,7 +36,18 @@ impl<K, V> Arena<K, V> {
         Box::new(MaybeUninit::<LeafNode<K, V>>::uninit())
     }
 
-    pub(crate) unsafe fn deallocate_leaf_node(&mut self, ptr: NonNull<MaybeUninit<LeafNode<K, V>>>) {
+    pub(crate) unsafe fn leaf_node(&self, id: Id<LeafNode<K, V>>) -> *const LeafNode<K, V> {
+        self.leaf_nodes.get(id)
+    }
+
+    pub(crate) unsafe fn leaf_node_mut(&mut self, id: Id<LeafNode<K, V>>) -> *mut LeafNode<K, V> {
+        self.leaf_nodes.get_mut(id)
+    }
+
+    pub(crate) unsafe fn deallocate_leaf_node(
+        &mut self,
+        ptr: NonNull<MaybeUninit<LeafNode<K, V>>>,
+    ) {
         drop(Box::from_raw(ptr.as_ptr()));
     }
 
@@ -45,6 +56,20 @@ impl<K, V> Arena<K, V> {
             self.internal_nodes.items.reserve(1);
         }
         Box::new(MaybeUninit::<InternalNode<K, V>>::uninit())
+    }
+
+    pub(crate) unsafe fn internal_node(
+        &self,
+        id: Id<InternalNode<K, V>>,
+    ) -> *const InternalNode<K, V> {
+        self.internal_nodes.get(id)
+    }
+
+    pub(crate) unsafe fn internal_node_mut(
+        &mut self,
+        id: Id<InternalNode<K, V>>,
+    ) -> *mut InternalNode<K, V> {
+        self.internal_nodes.get_mut(id)
     }
 
     pub(crate) unsafe fn deallocate_internal_node(
@@ -69,7 +94,7 @@ union MaybeFree<T> {
     allocated: ManuallyDrop<MaybeUninit<T>>,
 }
 
-struct Id<T> {
+pub(crate) struct Id<T> {
     index: NonMaxU32,
     _phantom: PhantomData<*mut T>,
 
