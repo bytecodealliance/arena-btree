@@ -3,6 +3,7 @@ use core::cmp::Ordering;
 use core::ops::{Bound, RangeBounds};
 
 use super::node::{marker, ForceResult::*, Handle, NodeRef};
+use crate::arena::Arena;
 
 use SearchBound::*;
 use SearchResult::*;
@@ -28,7 +29,11 @@ impl<T> SearchBound<T> {
     }
 }
 
-pub(crate) enum SearchResult<BorrowType, K, V, FoundType, GoDownType> {
+pub(crate) enum SearchResult<BorrowType, K, V, FoundType, GoDownType>
+where
+    FoundType: marker::IdForType<K, V>,
+    GoDownType: marker::IdForType<K, V>,
+{
     Found(Handle<NodeRef<BorrowType, K, V, FoundType>, marker::KV>),
     GoDown(Handle<NodeRef<BorrowType, K, V, GoDownType>, marker::Edge>),
 }
@@ -48,17 +53,18 @@ impl<BorrowType: marker::BorrowType, K, V> NodeRef<BorrowType, K, V, marker::Lea
     pub fn search_tree<Q: ?Sized>(
         mut self,
         key: &Q,
+        arena: &Arena<K, V>,
     ) -> SearchResult<BorrowType, K, V, marker::LeafOrInternal, marker::Leaf>
     where
         Q: Ord,
         K: Borrow<Q>,
     {
         loop {
-            self = match self.search_node(key) {
+            self = match self.search_node(key, arena) {
                 Found(handle) => return Found(handle),
                 GoDown(handle) => match handle.force() {
                     Leaf(leaf) => return GoDown(leaf),
-                    Internal(internal) => internal.descend(),
+                    Internal(internal) => internal.descend(arena),
                 },
             }
         }
@@ -82,6 +88,7 @@ impl<BorrowType: marker::BorrowType, K, V> NodeRef<BorrowType, K, V, marker::Lea
     pub fn search_tree_for_bifurcation<'r, Q: ?Sized, R>(
         mut self,
         range: &'r R,
+        arena: &Arena<K, V>,
     ) -> Result<
         (
             NodeRef<BorrowType, K, V, marker::LeafOrInternal>,
@@ -114,9 +121,10 @@ impl<BorrowType: marker::BorrowType, K, V> NodeRef<BorrowType, K, V, marker::Lea
         let mut lower_bound = SearchBound::from_range(start);
         let mut upper_bound = SearchBound::from_range(end);
         loop {
-            let (lower_edge_idx, lower_child_bound) = self.find_lower_bound_index(lower_bound);
+            let (lower_edge_idx, lower_child_bound) =
+                self.find_lower_bound_index(lower_bound, arena);
             let (upper_edge_idx, upper_child_bound) =
-                unsafe { self.find_upper_bound_index(upper_bound, lower_edge_idx) };
+                unsafe { self.find_upper_bound_index(upper_bound, lower_edge_idx, arena) };
             if lower_edge_idx < upper_edge_idx {
                 return Ok((
                     self,
@@ -127,11 +135,11 @@ impl<BorrowType: marker::BorrowType, K, V> NodeRef<BorrowType, K, V, marker::Lea
                 ));
             }
             debug_assert_eq!(lower_edge_idx, upper_edge_idx);
-            let common_edge = unsafe { Handle::new_edge(self, lower_edge_idx) };
+            let common_edge = unsafe { Handle::new_edge(self, lower_edge_idx, arena) };
             match common_edge.force() {
                 Leaf(common_edge) => return Err(common_edge),
                 Internal(common_edge) => {
-                    self = common_edge.descend();
+                    self = common_edge.descend(arena);
                     lower_bound = lower_child_bound;
                     upper_bound = upper_child_bound;
                 }
@@ -147,13 +155,14 @@ impl<BorrowType: marker::BorrowType, K, V> NodeRef<BorrowType, K, V, marker::Lea
     pub fn find_lower_bound_edge<'r, Q>(
         self,
         bound: SearchBound<&'r Q>,
+        arena: &Arena<K, V>,
     ) -> (Handle<Self, marker::Edge>, SearchBound<&'r Q>)
     where
         Q: ?Sized + Ord,
         K: Borrow<Q>,
     {
-        let (edge_idx, bound) = self.find_lower_bound_index(bound);
-        let edge = unsafe { Handle::new_edge(self, edge_idx) };
+        let (edge_idx, bound) = self.find_lower_bound_index(bound, arena);
+        let edge = unsafe { Handle::new_edge(self, edge_idx, arena) };
         (edge, bound)
     }
 
@@ -161,18 +170,22 @@ impl<BorrowType: marker::BorrowType, K, V> NodeRef<BorrowType, K, V, marker::Lea
     pub fn find_upper_bound_edge<'r, Q>(
         self,
         bound: SearchBound<&'r Q>,
+        arena: &Arena<K, V>,
     ) -> (Handle<Self, marker::Edge>, SearchBound<&'r Q>)
     where
         Q: ?Sized + Ord,
         K: Borrow<Q>,
     {
-        let (edge_idx, bound) = unsafe { self.find_upper_bound_index(bound, 0) };
-        let edge = unsafe { Handle::new_edge(self, edge_idx) };
+        let (edge_idx, bound) = unsafe { self.find_upper_bound_index(bound, 0, arena) };
+        let edge = unsafe { Handle::new_edge(self, edge_idx, arena) };
         (edge, bound)
     }
 }
 
-impl<BorrowType, K, V, Type> NodeRef<BorrowType, K, V, Type> {
+impl<BorrowType, K, V, Type> NodeRef<BorrowType, K, V, Type>
+where
+    Type: marker::IdForType<K, V>,
+{
     /// Looks up a given key in the node, without recursion.
     /// Returns a `Found` with the handle of the matching KV, if any. Otherwise,
     /// returns a `GoDown` with the handle of the edge where the key might be found
@@ -180,14 +193,18 @@ impl<BorrowType, K, V, Type> NodeRef<BorrowType, K, V, Type> {
     ///
     /// The result is meaningful only if the tree is ordered by key, like the tree
     /// in a `BTreeMap` is.
-    pub fn search_node<Q: ?Sized>(self, key: &Q) -> SearchResult<BorrowType, K, V, Type, Type>
+    pub fn search_node<Q: ?Sized>(
+        self,
+        key: &Q,
+        arena: &Arena<K, V>,
+    ) -> SearchResult<BorrowType, K, V, Type, Type>
     where
         Q: Ord,
         K: Borrow<Q>,
     {
-        match unsafe { self.find_key_index(key, 0) } {
-            IndexResult::KV(idx) => Found(unsafe { Handle::new_kv(self, idx) }),
-            IndexResult::Edge(idx) => GoDown(unsafe { Handle::new_edge(self, idx) }),
+        match unsafe { self.find_key_index(key, 0, arena) } {
+            IndexResult::KV(idx) => Found(unsafe { Handle::new_kv(self, idx, arena) }),
+            IndexResult::Edge(idx) => GoDown(unsafe { Handle::new_edge(self, idx, arena) }),
         }
     }
 
@@ -199,13 +216,18 @@ impl<BorrowType, K, V, Type> NodeRef<BorrowType, K, V, Type> {
     ///
     /// # Safety
     /// `start_index` must be a valid edge index for the node.
-    unsafe fn find_key_index<Q: ?Sized>(&self, key: &Q, start_index: usize) -> IndexResult
+    unsafe fn find_key_index<Q: ?Sized>(
+        &self,
+        key: &Q,
+        start_index: usize,
+        arena: &Arena<K, V>,
+    ) -> IndexResult
     where
         Q: Ord,
         K: Borrow<Q>,
     {
         let node = self.reborrow();
-        let keys = node.keys();
+        let keys = node.keys(arena);
         debug_assert!(start_index <= keys.len());
         for (offset, k) in unsafe { keys.get_unchecked(start_index..) }
             .iter()
@@ -228,22 +250,23 @@ impl<BorrowType, K, V, Type> NodeRef<BorrowType, K, V, Type> {
     fn find_lower_bound_index<'r, Q>(
         &self,
         bound: SearchBound<&'r Q>,
+        arena: &Arena<K, V>,
     ) -> (usize, SearchBound<&'r Q>)
     where
         Q: ?Sized + Ord,
         K: Borrow<Q>,
     {
         match bound {
-            Included(key) => match unsafe { self.find_key_index(key, 0) } {
+            Included(key) => match unsafe { self.find_key_index(key, 0, arena) } {
                 IndexResult::KV(idx) => (idx, AllExcluded),
                 IndexResult::Edge(idx) => (idx, bound),
             },
-            Excluded(key) => match unsafe { self.find_key_index(key, 0) } {
+            Excluded(key) => match unsafe { self.find_key_index(key, 0, arena) } {
                 IndexResult::KV(idx) => (idx + 1, AllIncluded),
                 IndexResult::Edge(idx) => (idx, bound),
             },
             AllIncluded => (0, AllIncluded),
-            AllExcluded => (self.len(), AllExcluded),
+            AllExcluded => (self.len(arena), AllExcluded),
         }
     }
 
@@ -256,21 +279,22 @@ impl<BorrowType, K, V, Type> NodeRef<BorrowType, K, V, Type> {
         &self,
         bound: SearchBound<&'r Q>,
         start_index: usize,
+        arena: &Arena<K, V>,
     ) -> (usize, SearchBound<&'r Q>)
     where
         Q: ?Sized + Ord,
         K: Borrow<Q>,
     {
         match bound {
-            Included(key) => match unsafe { self.find_key_index(key, start_index) } {
+            Included(key) => match unsafe { self.find_key_index(key, start_index, arena) } {
                 IndexResult::KV(idx) => (idx + 1, AllExcluded),
                 IndexResult::Edge(idx) => (idx, bound),
             },
-            Excluded(key) => match unsafe { self.find_key_index(key, start_index) } {
+            Excluded(key) => match unsafe { self.find_key_index(key, start_index, arena) } {
                 IndexResult::KV(idx) => (idx, AllIncluded),
                 IndexResult::Edge(idx) => (idx, bound),
             },
-            AllIncluded => (self.len(), AllIncluded),
+            AllIncluded => (self.len(arena), AllIncluded),
             AllExcluded => (start_index, AllExcluded),
         }
     }

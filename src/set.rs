@@ -981,8 +981,8 @@ impl<T> BTreeSet<T> {
         T: Ord,
         F: 'a + FnMut(&T) -> bool,
     {
-        let (inner, alloc) = self.map.drain_filter_inner();
-        DrainFilter { pred, inner, alloc }
+        let inner = self.map.drain_filter_inner();
+        DrainFilter { pred, inner }
     }
 
     /// Gets an iterator that visits the elements in the `BTreeSet` in ascending
@@ -1069,10 +1069,7 @@ impl<T: Ord> FromIterator<T> for BTreeSet<T> {
 }
 
 impl<T: Ord> BTreeSet<T> {
-    fn from_sorted_iter<I: Iterator<Item = T>>(
-        iter: I,
-        alloc: Arena<T, SetValZST>,
-    ) -> BTreeSet<T> {
+    fn from_sorted_iter<I: Iterator<Item = T>>(iter: I, alloc: Arena<T, SetValZST>) -> BTreeSet<T> {
         let iter = iter.map(|k| (k, SetValZST::default()));
         let map = BTreeMap::bulk_build_from_sorted_iter(iter, alloc);
         BTreeSet { map }
@@ -1142,8 +1139,6 @@ where
 {
     pred: F,
     inner: super::map::DrainFilterInner<'a, T, SetValZST>,
-    /// The BTreeMap will outlive this IntoIter so we don't care about drop order for `alloc`.
-    alloc: &'a mut Arena<T, SetValZST>,
 }
 
 impl<T, F> Drop for DrainFilter<'_, T, F>
@@ -1176,9 +1171,7 @@ where
     fn next(&mut self) -> Option<T> {
         let pred = &mut self.pred;
         let mut mapped_pred = |k: &T, _v: &mut SetValZST| pred(k);
-        self.inner
-            .next(&mut mapped_pred, &mut self.alloc)
-            .map(|(k, _)| k)
+        self.inner.next(&mut mapped_pred).map(|(k, _)| k)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {

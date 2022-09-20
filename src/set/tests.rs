@@ -590,22 +590,22 @@ fn test_recovery() {
     assert_eq!(s.iter().next(), None);
 }
 
-#[allow(dead_code)]
-fn assert_covariance() {
-    fn set<'new>(v: BTreeSet<&'static str>) -> BTreeSet<&'new str> {
-        v
-    }
-    fn iter<'a, 'new>(v: Iter<'a, &'static str>) -> Iter<'a, &'new str> {
-        v
-    }
-    fn into_iter<'new>(v: IntoIter<&'static str>) -> IntoIter<&'new str> {
-        v
-    }
-    fn range<'a, 'new>(v: Range<'a, &'static str>) -> Range<'a, &'new str> {
-        v
-    }
-    // not applied to Difference, Intersection, SymmetricDifference, Union
-}
+// #[allow(dead_code)]
+// fn assert_covariance() {
+//     fn set<'new>(v: BTreeSet<&'static str>) -> BTreeSet<&'new str> {
+//         v
+//     }
+//     fn iter<'a, 'new>(v: Iter<'a, &'static str>) -> Iter<'a, &'new str> {
+//         v
+//     }
+//     fn into_iter<'new>(v: IntoIter<&'static str>) -> IntoIter<&'new str> {
+//         v
+//     }
+//     fn range<'a, 'new>(v: Range<'a, &'static str>) -> Range<'a, &'new str> {
+//         v
+//     }
+//     // not applied to Difference, Intersection, SymmetricDifference, Union
+// }
 
 #[allow(dead_code)]
 fn assert_sync() {

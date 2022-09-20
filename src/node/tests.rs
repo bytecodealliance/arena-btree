@@ -4,13 +4,13 @@ use std::fmt::Debug;
 
 impl<'a, K: 'a, V: 'a> NodeRef<marker::Immut<'a>, K, V, marker::LeafOrInternal> {
     // Asserts that the back pointer in each reachable node points to its parent.
-    pub fn assert_back_pointers(self) {
+    pub fn assert_back_pointers(self, arena: &Arena<K, V>) {
         if let ForceResult::Internal(node) = self.force() {
-            for idx in 0..=node.len() {
-                let edge = unsafe { Handle::new_edge(node, idx) };
-                let child = edge.descend();
-                assert!(child.ascend().ok() == Some(edge));
-                child.assert_back_pointers();
+            for idx in 0..=node.len(arena) {
+                let edge = unsafe { Handle::new_edge(node, idx, arena) };
+                let child = edge.descend(arena);
+                assert!(child.ascend(arena).ok() == Some(edge));
+                child.assert_back_pointers(arena);
             }
         }
     }
@@ -18,22 +18,22 @@ impl<'a, K: 'a, V: 'a> NodeRef<marker::Immut<'a>, K, V, marker::LeafOrInternal> 
     // Renders a multi-line display of the keys in order and in tree hierarchy,
     // picturing the tree growing sideways from its root on the left to its
     // leaves on the right.
-    pub fn dump_keys(self) -> String
+    pub fn dump_keys(self, arena: &Arena<K, V>) -> String
     where
         K: Debug,
     {
         let mut result = String::new();
-        self.visit_nodes_in_order(|pos| match pos {
+        self.visit_nodes_in_order(arena, |pos| match pos {
             navigate::Position::Leaf(leaf) => {
                 let depth = self.height();
                 let indent = "  ".repeat(depth);
-                result += &format!("\n{}{:?}", indent, leaf.keys());
+                result += &format!("\n{}{:?}", indent, leaf.keys(arena));
             }
             navigate::Position::Internal(_) => {}
             navigate::Position::InternalKV(kv) => {
                 let depth = self.height() - kv.into_node().height();
                 let indent = "  ".repeat(depth);
-                result += &format!("\n{}{:?}", indent, kv.into_kv().0);
+                result += &format!("\n{}{:?}", indent, kv.into_kv(arena).0);
             }
         });
         result
@@ -69,16 +69,22 @@ fn test_partial_eq() {
     let mut arena = Arena::default();
 
     let mut root1 = NodeRef::new_leaf(&mut arena);
-    root1.borrow_mut().push(1, ());
+    root1.borrow_mut().push(1, (), &arena);
     let mut root1 = NodeRef::new_internal(root1.forget_type(), &mut arena).forget_type();
     let root2 = Root::new(&mut arena);
-    root1.reborrow().assert_back_pointers();
-    root2.reborrow().assert_back_pointers();
+    root1.reborrow().assert_back_pointers(&arena);
+    root2.reborrow().assert_back_pointers(&arena);
 
-    let leaf_edge_1a = root1.reborrow().first_leaf_edge().forget_node_type();
-    let leaf_edge_1b = root1.reborrow().last_leaf_edge().forget_node_type();
-    let top_edge_1 = root1.reborrow().first_edge();
-    let top_edge_2 = root2.reborrow().first_edge();
+    let leaf_edge_1a = root1
+        .reborrow()
+        .first_leaf_edge(&arena)
+        .forget_node_type(&arena);
+    let leaf_edge_1b = root1
+        .reborrow()
+        .last_leaf_edge(&arena)
+        .forget_node_type(&arena);
+    let top_edge_1 = root1.reborrow().first_edge(&arena);
+    let top_edge_2 = root2.reborrow().first_edge(&arena);
 
     assert!(leaf_edge_1a == leaf_edge_1a);
     assert!(leaf_edge_1a != leaf_edge_1b);

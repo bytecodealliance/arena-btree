@@ -1,6 +1,9 @@
+//! Implementation of arenas and ids pointing into them.
+
 use crate::node::{InternalNode, LeafNode};
 use std::{
     alloc::Layout,
+    cell::UnsafeCell,
     marker::PhantomData,
     mem::{ManuallyDrop, MaybeUninit},
     ptr::NonNull,
@@ -13,6 +16,9 @@ pub struct Arena<K, V> {
     internal_nodes: InnerArena<InternalNode<K, V>>,
     // TODO FITZGEN: arena id
 }
+
+unsafe impl<K: Send, V: Send> Send for Arena<K, V> {}
+unsafe impl<K, V> Sync for Arena<K, V> {}
 
 impl<K, V> Default for Arena<K, V> {
     fn default() -> Self {
@@ -29,54 +35,53 @@ impl<K, V> Arena<K, V> {
         }
     }
 
-    pub(crate) fn allocate_leaf_node(&mut self) -> Box<MaybeUninit<LeafNode<K, V>>> {
-        if self.leaf_nodes.items.capacity() == 0 {
-            self.leaf_nodes.items.reserve(1);
-        }
-        Box::new(MaybeUninit::<LeafNode<K, V>>::uninit())
+    pub(crate) fn allocate_leaf_node(&mut self) -> Id<LeafNode<K, V>> {
+        self.leaf_nodes.allocate()
     }
 
-    pub(crate) unsafe fn leaf_node(&self, id: Id<LeafNode<K, V>>) -> *const LeafNode<K, V> {
+    /// Get a pointer to the leaf node associated with the given `id`.
+    ///
+    /// # Safety
+    ///
+    /// The leaf node associated with the given `id` must be allocated.
+    ///
+    /// Does not check that `id` is from this arena, so if it is from a
+    /// different arena, this could lead to use-after-free and
+    /// out-of-bounds-access bugs!
+    ///
+    /// Does not check borrows!
+    pub(crate) unsafe fn leaf_node(&self, id: Id<LeafNode<K, V>>) -> *mut LeafNode<K, V> {
         self.leaf_nodes.get(id)
     }
 
-    pub(crate) unsafe fn leaf_node_mut(&mut self, id: Id<LeafNode<K, V>>) -> *mut LeafNode<K, V> {
-        self.leaf_nodes.get_mut(id)
+    pub(crate) unsafe fn deallocate_leaf_node(&mut self, id: Id<LeafNode<K, V>>) {
+        self.leaf_nodes.deallocate(id);
     }
 
-    pub(crate) unsafe fn deallocate_leaf_node(
-        &mut self,
-        ptr: NonNull<MaybeUninit<LeafNode<K, V>>>,
-    ) {
-        drop(Box::from_raw(ptr.as_ptr()));
+    pub(crate) fn allocate_internal_node(&mut self) -> Id<InternalNode<K, V>> {
+        self.internal_nodes.allocate()
     }
 
-    pub(crate) fn allocate_internal_node(&mut self) -> Box<MaybeUninit<InternalNode<K, V>>> {
-        if self.internal_nodes.items.capacity() == 0 {
-            self.internal_nodes.items.reserve(1);
-        }
-        Box::new(MaybeUninit::<InternalNode<K, V>>::uninit())
-    }
-
+    /// Get a pointer to the leaf node associated with the given `id`.
+    ///
+    /// # Safety
+    ///
+    /// The leaf node associated with the given `id` must be allocated.
+    ///
+    /// Does not check that `id` is from this arena, so if it is from a
+    /// different arena, this could lead to use-after-free and
+    /// out-of-bounds-access bugs!
+    ///
+    /// Does not check borrows!
     pub(crate) unsafe fn internal_node(
         &self,
         id: Id<InternalNode<K, V>>,
-    ) -> *const InternalNode<K, V> {
+    ) -> *mut InternalNode<K, V> {
         self.internal_nodes.get(id)
     }
 
-    pub(crate) unsafe fn internal_node_mut(
-        &mut self,
-        id: Id<InternalNode<K, V>>,
-    ) -> *mut InternalNode<K, V> {
-        self.internal_nodes.get_mut(id)
-    }
-
-    pub(crate) unsafe fn deallocate_internal_node(
-        &mut self,
-        ptr: NonNull<MaybeUninit<InternalNode<K, V>>>,
-    ) {
-        drop(Box::from_raw(ptr.as_ptr()));
+    pub(crate) unsafe fn deallocate_internal_node(&mut self, id: Id<InternalNode<K, V>>) {
+        self.internal_nodes.deallocate(id);
     }
 
     pub(crate) fn has_empty_capacity(&self) -> bool {
@@ -91,9 +96,17 @@ struct Free {
 
 union MaybeFree<T> {
     free: Free,
-    allocated: ManuallyDrop<MaybeUninit<T>>,
+    allocated: ManuallyDrop<MaybeUninit<UnsafeCell<T>>>,
 }
 
+/// An identifier of an entry in an arena.
+///
+/// This is equivalent to a pointer, and suffers from some of the same footguns:
+/// use-after-free bugs. The arena doesn't have a bit for each element to track
+/// whether it is free or not, let alone a way to determine if this was the
+/// *same* allocation as when the id was handed out or whether it was freed and
+/// then re-allocated as an unrelated thing. Therefore, extreme care must be
+/// taken to avoid these bugs!
 pub(crate) struct Id<T> {
     index: NonMaxU32,
     _phantom: PhantomData<*mut T>,
@@ -102,6 +115,23 @@ pub(crate) struct Id<T> {
     arena_id: usize,
 }
 
+impl<T> Id<T> {
+    pub(crate) fn eq(&self, other: Self) -> bool {
+        debug_assert_eq!(self.arena_id, other.arena_id);
+        self.index == other.index
+    }
+}
+
+impl<T> Copy for Id<T> {}
+impl<T> Clone for Id<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+/// An arena for values of type `T`.
+///
+/// Uses simple and fast free list allocation.
 struct InnerArena<T> {
     /// The arena items.
     ///
@@ -261,7 +291,7 @@ impl<T> InnerArena<T> {
     /// The given `id` must have been allocated from this arena.
     ///
     /// The given `id` must currently be allocated, and not free.
-    unsafe fn get(&self, id: Id<T>) -> *const T {
+    unsafe fn get(&self, id: Id<T>) -> *mut T {
         debug_assert_eq!(self.arena_id, Some(id.arena_id));
 
         let entry = unsafe {
@@ -271,28 +301,7 @@ impl<T> InnerArena<T> {
             self.items.get_unchecked(index)
         };
 
-        entry.allocated.as_ptr()
-    }
-
-    /// Get an exclusive borrow of the underlying value associated with the
-    /// given `id`.
-    ///
-    /// # Safety
-    ///
-    /// The given `id` must have been allocated from this arena.
-    ///
-    /// The given `id` must currently be allocated, and not free.
-    unsafe fn get_mut(&mut self, id: Id<T>) -> *mut T {
-        debug_assert_eq!(self.arena_id, Some(id.arena_id));
-
-        let entry = unsafe {
-            // SAFETY: all id indices are in bounds.
-            let index = *id.index as usize;
-            debug_assert!(index < self.items.len());
-            self.items.get_unchecked_mut(index)
-        };
-
-        entry.allocated.as_mut_ptr()
+        entry.allocated.as_ptr() as *mut T
     }
 
     fn capacity(&self) -> usize {

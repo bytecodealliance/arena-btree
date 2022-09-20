@@ -46,14 +46,14 @@ impl<K, V> BTreeMap<K, V> {
 
             // Check the back pointers top-down, before we attempt to rely on
             // more serious navigation code.
-            assert!(root_node.ascend().is_err());
-            root_node.assert_back_pointers();
+            assert!(root_node.ascend(&self.arena).is_err());
+            root_node.assert_back_pointers(&self.arena);
 
             // Check consistency of `length` with what navigation code encounters.
-            assert_eq!(self.length, root_node.calc_length());
+            assert_eq!(self.length, root_node.calc_length(&self.arena));
 
             // Lastly, check the invariant causing the least harm.
-            root_node.assert_min_len(if root_node.height() > 0 { 1 } else { 0 });
+            root_node.assert_min_len(if root_node.height() > 0 { 1 } else { 0 }, &self.arena);
         } else {
             assert_eq!(self.length, 0);
         }
@@ -84,7 +84,7 @@ impl<K, V> BTreeMap<K, V> {
         K: Debug,
     {
         if let Some(root) = self.root.as_ref() {
-            root.reborrow().dump_keys()
+            root.reborrow().dump_keys(&self.arena)
         } else {
             String::from("not yet allocated")
         }
@@ -113,27 +113,27 @@ impl<K, V> BTreeMap<K, V> {
     {
         let iter = mem::take(self).into_iter();
         if iter.len() != 0 {
-            self.root.insert(Root::new(&mut *self.alloc)).bulk_push(
+            self.root.insert(Root::new(&mut *self.arena)).bulk_push(
                 iter,
                 &mut self.length,
-                &mut *self.alloc,
+                &mut *self.arena,
             );
         }
     }
 }
 
 impl<'a, K: 'a, V: 'a> NodeRef<marker::Immut<'a>, K, V, marker::LeafOrInternal> {
-    fn assert_min_len(self, min_len: usize) {
+    fn assert_min_len(self, min_len: usize, arena: &Arena<K, V>) {
         assert!(
-            self.len() >= min_len,
+            self.len(arena) >= min_len,
             "node len {} < {}",
-            self.len(),
+            self.len(arena),
             min_len
         );
         if let node::ForceResult::Internal(node) = self.force() {
-            for idx in 0..=node.len() {
-                let edge = unsafe { Handle::new_edge(node, idx) };
-                edge.descend().assert_min_len(MIN_LEN);
+            for idx in 0..=node.len(arena) {
+                let edge = unsafe { Handle::new_edge(node, idx, arena) };
+                edge.descend(arena).assert_min_len(MIN_LEN, arena);
             }
         }
     }
@@ -1625,7 +1625,7 @@ fn test_clone_panic_leak(size: usize) {
             (dummy.spawn(panic), ())
         }));
 
-        catch_unwind(|| map.clone()).unwrap_err();
+        catch_unwind(AssertUnwindSafe(|| map.clone())).unwrap_err();
         for d in &dummies {
             assert_eq!(
                 d.cloned(),
@@ -1699,64 +1699,64 @@ fn test_clone_from() {
     }
 }
 
-#[allow(dead_code)]
-fn assert_covariance() {
-    fn map_key<'new>(v: BTreeMap<&'static str, ()>) -> BTreeMap<&'new str, ()> {
-        v
-    }
-    fn map_val<'new>(v: BTreeMap<(), &'static str>) -> BTreeMap<(), &'new str> {
-        v
-    }
+// #[allow(dead_code)]
+// fn assert_covariance() {
+//     fn map_key<'new>(v: BTreeMap<&'static str, ()>) -> BTreeMap<&'new str, ()> {
+//         v
+//     }
+//     fn map_val<'new>(v: BTreeMap<(), &'static str>) -> BTreeMap<(), &'new str> {
+//         v
+//     }
 
-    fn iter_key<'a, 'new>(v: Iter<'a, &'static str, ()>) -> Iter<'a, &'new str, ()> {
-        v
-    }
-    fn iter_val<'a, 'new>(v: Iter<'a, (), &'static str>) -> Iter<'a, (), &'new str> {
-        v
-    }
+//     fn iter_key<'a, 'new>(v: Iter<'a, &'static str, ()>) -> Iter<'a, &'new str, ()> {
+//         v
+//     }
+//     fn iter_val<'a, 'new>(v: Iter<'a, (), &'static str>) -> Iter<'a, (), &'new str> {
+//         v
+//     }
 
-    fn into_iter_key<'new>(v: IntoIter<&'static str, ()>) -> IntoIter<&'new str, ()> {
-        v
-    }
-    fn into_iter_val<'new>(v: IntoIter<(), &'static str>) -> IntoIter<(), &'new str> {
-        v
-    }
+//     fn into_iter_key<'new>(v: IntoIter<&'static str, ()>) -> IntoIter<&'new str, ()> {
+//         v
+//     }
+//     fn into_iter_val<'new>(v: IntoIter<(), &'static str>) -> IntoIter<(), &'new str> {
+//         v
+//     }
 
-    fn into_keys_key<'new>(v: IntoKeys<&'static str, ()>) -> IntoKeys<&'new str, ()> {
-        v
-    }
-    fn into_keys_val<'new>(v: IntoKeys<(), &'static str>) -> IntoKeys<(), &'new str> {
-        v
-    }
+//     fn into_keys_key<'new>(v: IntoKeys<&'static str, ()>) -> IntoKeys<&'new str, ()> {
+//         v
+//     }
+//     fn into_keys_val<'new>(v: IntoKeys<(), &'static str>) -> IntoKeys<(), &'new str> {
+//         v
+//     }
 
-    fn into_values_key<'new>(v: IntoValues<&'static str, ()>) -> IntoValues<&'new str, ()> {
-        v
-    }
-    fn into_values_val<'new>(v: IntoValues<(), &'static str>) -> IntoValues<(), &'new str> {
-        v
-    }
+//     fn into_values_key<'new>(v: IntoValues<&'static str, ()>) -> IntoValues<&'new str, ()> {
+//         v
+//     }
+//     fn into_values_val<'new>(v: IntoValues<(), &'static str>) -> IntoValues<(), &'new str> {
+//         v
+//     }
 
-    fn range_key<'a, 'new>(v: Range<'a, &'static str, ()>) -> Range<'a, &'new str, ()> {
-        v
-    }
-    fn range_val<'a, 'new>(v: Range<'a, (), &'static str>) -> Range<'a, (), &'new str> {
-        v
-    }
+//     fn range_key<'a, 'new>(v: Range<'a, &'static str, ()>) -> Range<'a, &'new str, ()> {
+//         v
+//     }
+//     fn range_val<'a, 'new>(v: Range<'a, (), &'static str>) -> Range<'a, (), &'new str> {
+//         v
+//     }
 
-    fn keys_key<'a, 'new>(v: Keys<'a, &'static str, ()>) -> Keys<'a, &'new str, ()> {
-        v
-    }
-    fn keys_val<'a, 'new>(v: Keys<'a, (), &'static str>) -> Keys<'a, (), &'new str> {
-        v
-    }
+//     fn keys_key<'a, 'new>(v: Keys<'a, &'static str, ()>) -> Keys<'a, &'new str, ()> {
+//         v
+//     }
+//     fn keys_val<'a, 'new>(v: Keys<'a, (), &'static str>) -> Keys<'a, (), &'new str> {
+//         v
+//     }
 
-    fn values_key<'a, 'new>(v: Values<'a, &'static str, ()>) -> Values<'a, &'new str, ()> {
-        v
-    }
-    fn values_val<'a, 'new>(v: Values<'a, (), &'static str>) -> Values<'a, (), &'new str> {
-        v
-    }
-}
+//     fn values_key<'a, 'new>(v: Values<'a, &'static str, ()>) -> Values<'a, &'new str, ()> {
+//         v
+//     }
+//     fn values_val<'a, 'new>(v: Values<'a, (), &'static str>) -> Values<'a, (), &'new str> {
+//         v
+//     }
+// }
 
 #[allow(dead_code)]
 fn assert_sync() {
@@ -2150,12 +2150,21 @@ fn test_insert_into_full_height_1() {
         map.compact();
         dbg!(map.root.is_some());
         let root_node = map.root.as_ref().unwrap().reborrow();
-        assert_eq!(root_node.len(), 1);
+        assert_eq!(root_node.len(&map.arena), 1);
         assert_eq!(
-            root_node.first_leaf_edge().into_node().len(),
+            root_node
+                .first_leaf_edge(&map.arena)
+                .into_node()
+                .len(&map.arena),
             node::CAPACITY
         );
-        assert_eq!(root_node.last_leaf_edge().into_node().len(), node::CAPACITY);
+        assert_eq!(
+            root_node
+                .last_leaf_edge(&map.arena)
+                .into_node()
+                .len(&map.arena),
+            node::CAPACITY
+        );
 
         assert!(map.insert(pos * 2, ()).is_none());
         map.check();

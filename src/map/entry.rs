@@ -42,7 +42,7 @@ pub struct VacantEntry<'a, K, V> {
     pub(super) dormant_map: DormantMutRef<'a, BTreeMap<K, V>>,
 
     /// The BTreeMap will outlive this IntoIter so we don't care about drop order for `alloc`.
-    pub(super) alloc: &'a mut Arena<K, V>,
+    pub(super) arena: &'a mut Arena<K, V>,
 
     // Be invariant in `K` and `V`
     pub(super) _marker: PhantomData<&'a mut (K, V)>,
@@ -62,7 +62,7 @@ pub struct OccupiedEntry<'a, K, V> {
     pub(super) dormant_map: DormantMutRef<'a, BTreeMap<K, V>>,
 
     /// The BTreeMap will outlive this IntoIter so we don't care about drop order for `alloc`.
-    pub(super) alloc: &'a mut Arena<K, V>,
+    pub(super) arena: &'a mut Arena<K, V>,
 
     // Be invariant in `K` and `V`
     pub(super) _marker: PhantomData<&'a mut (K, V)>,
@@ -277,13 +277,13 @@ impl<'a, K: Ord, V> VacantEntry<'a, K, V> {
             None => {
                 // SAFETY: There is no tree yet so no reference to it exists.
                 let map = unsafe { self.dormant_map.awaken() };
-                let mut root = NodeRef::new_leaf(&mut self.alloc);
-                let val_ptr = root.borrow_mut().push(self.key, value) as *mut V;
+                let mut root = NodeRef::new_leaf(&mut self.arena);
+                let val_ptr = root.borrow_mut().push(self.key, value, &self.arena) as *mut V;
                 map.root = Some(root.forget_type());
                 map.length = 1;
                 val_ptr
             }
-            Some(handle) => match handle.insert_recursing(self.key, value, &mut self.alloc) {
+            Some(handle) => match handle.insert_recursing(self.key, value, &mut self.arena) {
                 (None, val_ptr) => {
                     // SAFETY: We have consumed self.handle.
                     let map = unsafe { self.dormant_map.awaken() };
@@ -296,8 +296,8 @@ impl<'a, K: Ord, V> VacantEntry<'a, K, V> {
                     // remaining reference to the tree, ins.left.
                     let map = unsafe { self.dormant_map.awaken() };
                     let root = map.root.as_mut().unwrap(); // same as ins.left
-                    root.push_internal_level(self.alloc)
-                        .push(ins.kv.0, ins.kv.1, ins.right);
+                    root.push_internal_level(self.arena)
+                        .push(ins.kv.0, ins.kv.1, ins.right, self.arena);
                     map.length += 1;
                     val_ptr
                 }
@@ -323,7 +323,7 @@ impl<'a, K: Ord, V> OccupiedEntry<'a, K, V> {
     /// ```
     #[must_use]
     pub fn key(&self) -> &K {
-        self.handle.reborrow().into_kv().0
+        self.handle.reborrow().into_kv(self.arena).0
     }
 
     /// Take ownership of the key and value from the map.
@@ -366,7 +366,7 @@ impl<'a, K: Ord, V> OccupiedEntry<'a, K, V> {
     /// ```
     #[must_use]
     pub fn get(&self) -> &V {
-        self.handle.reborrow().into_kv().1
+        self.handle.reborrow().into_kv(self.arena).1
     }
 
     /// Gets a mutable reference to the value in the entry.
@@ -396,7 +396,7 @@ impl<'a, K: Ord, V> OccupiedEntry<'a, K, V> {
     /// assert_eq!(map["poneyland"], 24);
     /// ```
     pub fn get_mut(&mut self) -> &mut V {
-        self.handle.kv_mut().1
+        self.handle.kv_mut(self.arena).1
     }
 
     /// Converts the entry into a mutable reference to its value.
@@ -422,7 +422,7 @@ impl<'a, K: Ord, V> OccupiedEntry<'a, K, V> {
     /// ```
     #[must_use = "`self` will be dropped if the result is not used"]
     pub fn into_mut(self) -> &'a mut V {
-        self.handle.into_val_mut()
+        self.handle.into_val_mut(self.arena)
     }
 
     /// Sets the value of the entry with the `OccupiedEntry`'s key,
@@ -472,13 +472,13 @@ impl<'a, K: Ord, V> OccupiedEntry<'a, K, V> {
         let mut emptied_internal_root = false;
         let (old_kv, _) = self
             .handle
-            .remove_kv_tracking(|_alloc| emptied_internal_root = true, &mut self.alloc);
+            .remove_kv_tracking(|_alloc| emptied_internal_root = true, &mut self.arena);
         // SAFETY: we consumed the intermediate root borrow, `self.handle`.
         let map = unsafe { self.dormant_map.awaken() };
         map.length -= 1;
         if emptied_internal_root {
             let root = map.root.as_mut().unwrap();
-            root.pop_internal_level(self.alloc);
+            root.pop_internal_level(self.arena);
         }
         old_kv
     }
