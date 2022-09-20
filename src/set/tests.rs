@@ -590,6 +590,8 @@ fn test_recovery() {
     assert_eq!(s.iter().next(), None);
 }
 
+// Don't know how to prevent arenas from making this stuff invariant.
+//
 // #[allow(dead_code)]
 // fn assert_covariance() {
 //     fn set<'new>(v: BTreeSet<&'static str>) -> BTreeSet<&'new str> {

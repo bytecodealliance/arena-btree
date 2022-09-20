@@ -101,17 +101,17 @@ fn test_partial_eq() {
 #[test]
 #[cfg(target_arch = "x86_64")]
 fn test_sizes() {
-    assert_eq!(core::mem::size_of::<LeafNode<(), ()>>(), 16);
+    assert_eq!(core::mem::size_of::<LeafNode<(), ()>>(), 8);
     assert_eq!(
         core::mem::size_of::<LeafNode<i64, i64>>(),
-        16 + CAPACITY * 2 * 8
+        8 + CAPACITY * 2 * 8
     );
     assert_eq!(
         core::mem::size_of::<InternalNode<(), ()>>(),
-        16 + (CAPACITY + 1) * 8
+        8 + (CAPACITY + 1) * 8
     );
     assert_eq!(
         core::mem::size_of::<InternalNode<i64, i64>>(),
-        16 + (CAPACITY * 3 + 1) * 8
+        8 + (CAPACITY * 3 + 1) * 8
     );
 }
