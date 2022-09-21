@@ -1,32 +1,58 @@
-use crate::{BTreeMap, BTreeSet};
+use crate::{Arena, BTreeMap, BTreeSet, SetArena};
 use arbitrary::{Arbitrary, Result, Unstructured};
 
-impl<'a, K: Arbitrary<'a> + Ord, V: Arbitrary<'a>> Arbitrary<'a> for BTreeMap<K, V> {
-    fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
-        u.arbitrary_iter()?.collect()
+impl<'a, K: Arbitrary<'a> + Ord, V: Arbitrary<'a>> BTreeMap<K, V> {
+    /// TODO FITZGEN
+    pub fn arbitrary(arena: &mut Arena<K, V>, u: &mut Unstructured<'a>) -> Result<Self> {
+        let mut map = BTreeMap::new(arena);
+        for x in u.arbitrary_iter()? {
+            let (k, v) = x?;
+            map.insert(arena, k, v);
+        }
+        Ok(map)
     }
 
-    fn arbitrary_take_rest(u: Unstructured<'a>) -> Result<Self> {
-        u.arbitrary_take_rest_iter()?.collect()
+    /// TODO FITZGEN
+    pub fn arbitrary_take_rest(arena: &mut Arena<K, V>, u: Unstructured<'a>) -> Result<Self> {
+        let mut map = BTreeMap::new(arena);
+        for x in u.arbitrary_take_rest_iter()? {
+            let (k, v) = x?;
+            map.insert(arena, k, v);
+        }
+        Ok(map)
     }
 
+    /// TODO FITZGEN
     #[inline]
-    fn size_hint(_depth: usize) -> (usize, Option<usize>) {
+    pub fn arbitrary_size_hint(_depth: usize) -> (usize, Option<usize>) {
         (0, None)
     }
 }
 
-impl<'a, A: Arbitrary<'a> + Ord> Arbitrary<'a> for BTreeSet<A> {
-    fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
-        u.arbitrary_iter()?.collect()
+impl<'a, A: Arbitrary<'a> + Ord> BTreeSet<A> {
+    /// TODO FITZGEN
+    pub fn arbitrary(arena: &mut SetArena<A>, u: &mut Unstructured<'a>) -> Result<Self> {
+        let mut set = BTreeSet::new(arena);
+        for a in u.arbitrary_iter()? {
+            let a = a?;
+            set.insert(arena, a);
+        }
+        Ok(set)
     }
 
-    fn arbitrary_take_rest(u: Unstructured<'a>) -> Result<Self> {
-        u.arbitrary_take_rest_iter()?.collect()
+    /// TODO FITZGEN
+    pub fn arbitrary_take_rest(arena: &mut SetArena<A>, u: Unstructured<'a>) -> Result<Self> {
+        let mut set = BTreeSet::new(arena);
+        for a in u.arbitrary_take_rest_iter()? {
+            let a = a?;
+            set.insert(arena, a);
+        }
+        Ok(set)
     }
 
+    /// TODO FITZGEN
     #[inline]
-    fn size_hint(_depth: usize) -> (usize, Option<usize>) {
+    pub fn arbitrary_size_hint(_depth: usize) -> (usize, Option<usize>) {
         (0, None)
     }
 }

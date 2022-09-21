@@ -1,4 +1,4 @@
-use crate::{BTreeMap as ArenaBTreeMap, BTreeSet as ArenaBTreeSet};
+use crate::{Arena, BTreeMap as ArenaBTreeMap, BTreeSet as ArenaBTreeSet};
 use arbitrary::Arbitrary;
 use std::{
     collections::{BTreeMap as StdBTreeMap, BTreeSet as StdBTreeSet, HashSet},
@@ -15,9 +15,9 @@ pub struct Value(u8);
 
 #[derive(Arbitrary, Clone, Debug)]
 pub enum MapOperation {
-    Append {
-        other_map: Vec<(Key, Value)>,
-    },
+    // Append {
+    //     other_map: Vec<(Key, Value)>,
+    // },
     Clear,
     ContainsKey {
         key: Key,
@@ -89,11 +89,12 @@ impl Predicate {
 }
 
 fn assert_std_arena_maps_equal(
+    arena: &Arena<Key, Value>,
     std_map: &StdBTreeMap<Key, Value>,
     arena_map: &ArenaBTreeMap<Key, Value>,
 ) -> Result<(), Box<dyn Error + Sync + Send>> {
     let mut std_entries = std_map.iter().peekable();
-    let mut arena_entries = arena_map.iter().peekable();
+    let mut arena_entries = arena_map.iter(arena).peekable();
     let mut errors = vec![];
 
     loop {
@@ -175,36 +176,44 @@ pub fn differential_test_map(
     use MapOperation::*;
 
     let mut std_map = StdBTreeMap::from_iter(initial_map.iter().cloned());
-    let mut arena_map = ArenaBTreeMap::from_iter(initial_map);
-    assert_std_arena_maps_equal(&std_map, &arena_map)?;
+    let mut arena = Arena::new();
+    let mut arena_map = ArenaBTreeMap::from_iter(&mut arena, initial_map);
+    assert_std_arena_maps_equal(&arena, &std_map, &arena_map)?;
 
     for op in operations {
         match op {
-            Append { other_map } => {
-                std_map.append(&mut other_map.iter().cloned().collect::<StdBTreeMap<_, _>>());
-                arena_map.append(&mut other_map.into_iter().collect::<ArenaBTreeMap<_, _>>());
-            }
+            // Append { other_map } => {
+            //     std_map.append(&mut other_map.iter().cloned().collect::<StdBTreeMap<_, _>>());
+            //     arena_map.append(&mut other_map.into_iter().collect::<ArenaBTreeMap<_, _>>());
+            // }
             Clear => {
                 std_map.clear();
-                arena_map.clear();
+                arena_map.clear(&mut arena);
             }
             ContainsKey { key } => {
-                ensure_eq!(std_map.contains_key(&key), arena_map.contains_key(&key));
+                ensure_eq!(
+                    std_map.contains_key(&key),
+                    arena_map.contains_key(&arena, &key)
+                );
             }
             Get { key } => {
-                ensure_eq!(std_map.get(&key), arena_map.get(&key));
+                ensure_eq!(std_map.get(&key), arena_map.get(&arena, &key));
             }
             GetKeyValue { key } => {
-                ensure_eq!(std_map.get(&key), arena_map.get(&key));
+                ensure_eq!(std_map.get(&key), arena_map.get(&arena, &key));
             }
             IntoKeys => {
                 let std_keys = mem::take(&mut std_map).into_keys().collect::<Vec<_>>();
-                let arena_keys = mem::take(&mut arena_map).into_keys().collect::<Vec<_>>();
+                let arena_keys = mem::replace(&mut arena_map, ArenaBTreeMap::new(&arena))
+                    .into_keys(&mut arena)
+                    .collect::<Vec<_>>();
                 ensure_eq!(std_keys, arena_keys);
             }
             IntoValues => {
                 let std_values = mem::take(&mut std_map).into_values().collect::<Vec<_>>();
-                let arena_values = mem::take(&mut arena_map).into_values().collect::<Vec<_>>();
+                let arena_values = mem::replace(&mut arena_map, ArenaBTreeMap::new(&arena))
+                    .into_values(&mut arena)
+                    .collect::<Vec<_>>();
                 ensure_eq!(std_values, arena_values);
             }
             IsEmpty => {
@@ -212,13 +221,13 @@ pub fn differential_test_map(
             }
             Iter => {
                 let std_entries = std_map.iter().collect::<Vec<_>>();
-                let arena_entries = arena_map.iter().collect::<Vec<_>>();
+                let arena_entries = arena_map.iter(&arena).collect::<Vec<_>>();
                 ensure_eq!(std_entries, arena_entries);
             }
             IterMut { new_values } => {
                 let mut new_values = new_values.into_iter();
                 let mut std_entries = std_map.iter_mut();
-                let mut arena_entries = arena_map.iter_mut();
+                let mut arena_entries = arena_map.iter_mut(&mut arena);
                 for ((std_key, std_val), (arena_key, arena_val)) in
                     std_entries.by_ref().zip(arena_entries.by_ref())
                 {
@@ -233,7 +242,7 @@ pub fn differential_test_map(
             }
             Keys => {
                 let std_keys = std_map.keys().collect::<Vec<_>>();
-                let arena_keys = arena_map.keys().collect::<Vec<_>>();
+                let arena_keys = arena_map.keys(&arena).collect::<Vec<_>>();
                 ensure_eq!(std_keys, arena_keys);
             }
             Len => {
@@ -241,14 +250,18 @@ pub fn differential_test_map(
             }
             Range { bounds } => {
                 let (std_range, arena_range) = match bounds {
-                    RangeBounds::Range(r) => (std_map.range(r.clone()), arena_map.range(r)),
-                    RangeBounds::RangeFrom(r) => (std_map.range(r.clone()), arena_map.range(r)),
-                    RangeBounds::RangeTo(r) => (std_map.range(r.clone()), arena_map.range(r)),
+                    RangeBounds::Range(r) => (std_map.range(r.clone()), arena_map.range(&arena, r)),
+                    RangeBounds::RangeFrom(r) => {
+                        (std_map.range(r.clone()), arena_map.range(&arena, r))
+                    }
+                    RangeBounds::RangeTo(r) => {
+                        (std_map.range(r.clone()), arena_map.range(&arena, r))
+                    }
                     RangeBounds::RangeInclusive(r) => {
-                        (std_map.range(r.clone()), arena_map.range(r))
+                        (std_map.range(r.clone()), arena_map.range(&arena, r))
                     }
                     RangeBounds::RangeToInclusive(r) => {
-                        (std_map.range(r.clone()), arena_map.range(r))
+                        (std_map.range(r.clone()), arena_map.range(&arena, r))
                     }
                     RangeBounds::Bounds(mut from, mut to) => {
                         match (&mut from, &mut to) {
@@ -264,7 +277,10 @@ pub fn differential_test_map(
                             }
                             _ => {}
                         }
-                        (std_map.range((from, to)), arena_map.range((from, to)))
+                        (
+                            std_map.range((from, to)),
+                            arena_map.range(&arena, (from, to)),
+                        )
                     }
                 };
                 let std_range = std_range.collect::<Vec<_>>();
@@ -273,18 +289,20 @@ pub fn differential_test_map(
             }
             RangeMut { bounds, new_values } => {
                 let (mut std_range, mut arena_range) = match bounds {
-                    RangeBounds::Range(r) => (std_map.range_mut(r.clone()), arena_map.range_mut(r)),
+                    RangeBounds::Range(r) => {
+                        (std_map.range_mut(r.clone()), arena_map.range_mut(&arena, r))
+                    }
                     RangeBounds::RangeFrom(r) => {
-                        (std_map.range_mut(r.clone()), arena_map.range_mut(r))
+                        (std_map.range_mut(r.clone()), arena_map.range_mut(&arena, r))
                     }
                     RangeBounds::RangeTo(r) => {
-                        (std_map.range_mut(r.clone()), arena_map.range_mut(r))
+                        (std_map.range_mut(r.clone()), arena_map.range_mut(&arena, r))
                     }
                     RangeBounds::RangeInclusive(r) => {
-                        (std_map.range_mut(r.clone()), arena_map.range_mut(r))
+                        (std_map.range_mut(r.clone()), arena_map.range_mut(&arena, r))
                     }
                     RangeBounds::RangeToInclusive(r) => {
-                        (std_map.range_mut(r.clone()), arena_map.range_mut(r))
+                        (std_map.range_mut(r.clone()), arena_map.range_mut(&arena, r))
                     }
                     RangeBounds::Bounds(mut from, mut to) => {
                         match (&mut from, &mut to) {
@@ -302,7 +320,7 @@ pub fn differential_test_map(
                         }
                         (
                             std_map.range_mut((from, to)),
-                            arena_map.range_mut((from, to)),
+                            arena_map.range_mut(&arena, (from, to)),
                         )
                     }
                 };
@@ -319,25 +337,28 @@ pub fn differential_test_map(
                 }
             }
             Remove { key } => {
-                ensure_eq!(std_map.remove(&key), arena_map.remove(&key));
+                ensure_eq!(std_map.remove(&key), arena_map.remove(&mut arena, &key));
             }
             RemoveEntry { key } => {
-                ensure_eq!(std_map.remove_entry(&key), arena_map.remove_entry(&key));
+                ensure_eq!(
+                    std_map.remove_entry(&key),
+                    arena_map.remove_entry(&mut arena, &key)
+                );
             }
             Retain { predicate } => {
                 let mut predicate = predicate.into_fn();
                 std_map.retain(&mut predicate);
-                arena_map.retain(&mut predicate);
+                arena_map.retain(&mut arena, &mut predicate);
             }
             Values => {
                 let std_values = std_map.values().collect::<Vec<_>>();
-                let arena_values = arena_map.values().collect::<Vec<_>>();
+                let arena_values = arena_map.values(&arena).collect::<Vec<_>>();
                 ensure_eq!(std_values, arena_values);
             }
             ValuesMut { new_values } => {
                 let mut new_values = new_values.into_iter();
                 let mut std_values = std_map.values_mut();
-                let mut arena_values = arena_map.values_mut();
+                let mut arena_values = arena_map.values_mut(&arena);
                 for (std_val, arena_val) in std_values.by_ref().zip(arena_values.by_ref()) {
                     ensure_eq!(std_val, arena_val);
                     if let Some(new_val) = new_values.next() {
@@ -348,7 +369,7 @@ pub fn differential_test_map(
                 ensure_eq!(std_values.next(), arena_values.next());
             }
         }
-        assert_std_arena_maps_equal(&std_map, &arena_map)?;
+        assert_std_arena_maps_equal(&arena, &std_map, &arena_map)?;
     }
 
     Ok(())
@@ -392,10 +413,10 @@ mod tests {
     #[test]
     fn arena_map_has_extra_trailing_entry() {
         let std_map = vec![(Key(5), Value(10))].into_iter().collect();
-        let arena_map = vec![(Key(5), Value(10)), (Key(7), Value(14))]
-            .into_iter()
-            .collect();
-        let err = assert_std_arena_maps_equal(&std_map, &arena_map).unwrap_err();
+        let mut arena = Arena::new();
+        let arena_map =
+            ArenaBTreeMap::from_iter(&mut arena, [(Key(5), Value(10)), (Key(7), Value(14))]);
+        let err = assert_std_arena_maps_equal(&arena, &std_map, &arena_map).unwrap_err();
         assert_eq!(
             err.to_string(),
             "Found 1 differential error(s)!\n\n* arena map has extra entry that std map doesn't have: Key(7) -> Value(14)"
@@ -405,10 +426,10 @@ mod tests {
     #[test]
     fn arena_map_has_extra_preceding_entry() {
         let std_map = vec![(Key(5), Value(10))].into_iter().collect();
-        let arena_map = vec![(Key(3), Value(6)), (Key(5), Value(10))]
-            .into_iter()
-            .collect();
-        let err = assert_std_arena_maps_equal(&std_map, &arena_map).unwrap_err();
+        let mut arena = Arena::new();
+        let arena_map =
+            ArenaBTreeMap::from_iter(&mut arena, [(Key(3), Value(6)), (Key(5), Value(10))]);
+        let err = assert_std_arena_maps_equal(&arena, &std_map, &arena_map).unwrap_err();
         assert_eq!(
             err.to_string(),
             "Found 1 differential error(s)!\n\n* arena map has extra entry that std map doesn't have: Key(3) -> Value(6)"
@@ -420,8 +441,9 @@ mod tests {
         let std_map = vec![(Key(5), Value(10)), (Key(7), Value(14))]
             .into_iter()
             .collect();
-        let arena_map = vec![(Key(5), Value(10))].into_iter().collect();
-        let err = assert_std_arena_maps_equal(&std_map, &arena_map).unwrap_err();
+        let mut arena = Arena::new();
+        let arena_map = ArenaBTreeMap::from_iter(&mut arena, [(Key(5), Value(10))]);
+        let err = assert_std_arena_maps_equal(&arena, &std_map, &arena_map).unwrap_err();
         assert_eq!(
             err.to_string(),
             "Found 1 differential error(s)!\n\n* arena map is missing entry that std map has: Key(7) -> Value(14)"
@@ -433,8 +455,9 @@ mod tests {
         let std_map = vec![(Key(3), Value(6)), (Key(5), Value(10))]
             .into_iter()
             .collect();
-        let arena_map = vec![(Key(5), Value(10))].into_iter().collect();
-        let err = assert_std_arena_maps_equal(&std_map, &arena_map).unwrap_err();
+        let mut arena = Arena::new();
+        let arena_map = ArenaBTreeMap::from_iter(&mut arena, [(Key(5), Value(10))]);
+        let err = assert_std_arena_maps_equal(&arena, &std_map, &arena_map).unwrap_err();
         assert_eq!(
             err.to_string(),
             "Found 1 differential error(s)!\n\n* arena map is missing entry that std map has: Key(3) -> Value(6)"
@@ -446,10 +469,12 @@ mod tests {
         let std_map = vec![(Key(3), Value(6)), (Key(5), Value(10)), (Key(7), Value(14))]
             .into_iter()
             .collect();
-        let arena_map = vec![(Key(3), Value(6)), (Key(5), Value(10)), (Key(7), Value(14))]
-            .into_iter()
-            .collect();
-        assert_std_arena_maps_equal(&std_map, &arena_map).unwrap();
+        let mut arena = Arena::new();
+        let arena_map = ArenaBTreeMap::from_iter(
+            &mut arena,
+            [(Key(3), Value(6)), (Key(5), Value(10)), (Key(7), Value(14))],
+        );
+        assert_std_arena_maps_equal(&arena, &std_map, &arena_map).unwrap();
     }
 
     #[test]
@@ -461,14 +486,16 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let arena_map = vec![
-            (Key(5), Value(10)),
-            (Key(7), Value(14)),
-            (Key(100), Value(200)),
-        ]
-        .into_iter()
-        .collect();
-        let err = assert_std_arena_maps_equal(&std_map, &arena_map).unwrap_err();
+        let mut arena = Arena::new();
+        let arena_map = ArenaBTreeMap::from_iter(
+            &mut arena,
+            [
+                (Key(5), Value(10)),
+                (Key(7), Value(14)),
+                (Key(100), Value(200)),
+            ],
+        );
+        let err = assert_std_arena_maps_equal(&arena, &std_map, &arena_map).unwrap_err();
         assert_eq!(
             err.to_string(),
             "Found 2 differential error(s)!\n\n\

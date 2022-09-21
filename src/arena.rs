@@ -15,8 +15,7 @@ use std::{
 pub struct Arena<K, V> {
     leaf_nodes: InnerArena<LeafNode<K, V>>,
     internal_nodes: InnerArena<InternalNode<K, V>>,
-
-    arena_id: Option<usize>,
+    arena_id: usize,
 }
 
 unsafe impl<K: Send, V: Send> Send for Arena<K, V> {}
@@ -30,20 +29,21 @@ impl<K, V> Default for Arena<K, V> {
 
 impl<K, V> Arena<K, V> {
     /// Construct a new arena.
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
+        let arena_id = {
+            static ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
+            ID_COUNTER.fetch_add(1, Ordering::SeqCst)
+        };
         Arena {
             leaf_nodes: InnerArena::new(),
             internal_nodes: InnerArena::new(),
-            arena_id: None,
+            arena_id,
         }
     }
 
-    pub(crate) fn id(&mut self) -> usize {
-        if self.arena_id.is_none() {
-            static ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
-            self.arena_id = Some(ID_COUNTER.fetch_add(1, Ordering::SeqCst));
-        }
-        self.arena_id.unwrap()
+    #[inline]
+    pub(crate) fn id(&self) -> usize {
+        self.arena_id
     }
 
     pub(crate) fn allocate_leaf_node(&mut self) -> Id<LeafNode<K, V>> {
@@ -148,6 +148,10 @@ impl<T> Clone for Id<T> {
 /// An arena for values of type `T`.
 ///
 /// Uses simple and fast free list allocation.
+///
+/// The items themselves have interior mutability but the free list does
+/// not. This means that it is okay to create `&mut T` from an `$InnerArena<T>`
+/// but allocating and deallocating require `&mut InnerArena<T>`.
 struct InnerArena<T> {
     /// The arena items.
     ///
@@ -200,6 +204,11 @@ impl<T> InnerArena<T> {
     #[inline]
     fn set_first_free(&mut self, next_free: u32) {
         debug_assert!(self.items.len() > 0);
+        debug_assert!(
+            next_free == u32::MAX || (1 <= next_free && (next_free as usize) < self.items.len()),
+            "Invariant: every index in the free list is in `1..self.items.len()`; got {}",
+            next_free
+        );
         self.items[0].free.next_free = next_free;
     }
 
@@ -248,6 +257,12 @@ impl<T> InnerArena<T> {
                     self.items.get_unchecked_mut(index)
                 };
 
+                let next_free = unsafe {
+                    // SAFETY: all entries in the free list are the `free` union
+                    // variant.
+                    entry.free.next_free
+                };
+
                 unsafe {
                     // SAFETY: We are allocating this entry, so it needs to
                     // become the `allocated` union variant.
@@ -259,16 +274,12 @@ impl<T> InnerArena<T> {
                     );
                 }
 
-                let next_free = unsafe {
-                    // SAFETY: all entries in the free list are the `free` union
-                    // variant.
-                    entry.free.next_free
-                };
                 self.set_first_free(next_free);
-
                 debug_assert!(
-                    self.first_free().map_or(true, |idx| (idx as usize) < len),
-                    "Invariant: all indices in the free list are in bounds"
+                    self.first_free()
+                        .map_or(true, |idx| 1 <= idx && (idx as usize) < len),
+                    "Invariant: all indices in the free list are in `1..items.len()`; got {:?}",
+                    self.first_free()
                 );
 
                 Id::new(unsafe {

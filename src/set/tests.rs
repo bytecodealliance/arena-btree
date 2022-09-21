@@ -9,21 +9,24 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 #[test]
 fn test_clone_eq() {
-    let mut m = BTreeSet::new();
+    let mut arena = SetArena::new();
+    let mut m = BTreeSet::new(&arena);
 
-    m.insert(1);
-    m.insert(2);
+    m.insert(&mut arena, 1);
+    m.insert(&mut arena, 2);
 
-    assert_eq!(m.clone(), m);
+    let clone = m.clone(&mut arena);
+    assert!(clone.eq(&arena, &m));
 }
 
 #[test]
 fn test_iter_min_max() {
-    let mut a = BTreeSet::new();
-    assert_eq!(a.iter().min(), None);
-    assert_eq!(a.iter().max(), None);
-    assert_eq!(a.range(..).min(), None);
-    assert_eq!(a.range(..).max(), None);
+    let mut arena = SetArena::new();
+    let mut a = BTreeSet::new(&arena);
+    assert_eq!(a.iter(&arena).min(), None);
+    assert_eq!(a.iter(&arena).max(), None);
+    assert_eq!(a.range(&arena, ..).min(), None);
+    assert_eq!(a.range(&arena, ..).max(), None);
     // assert_eq!(a.difference(&BTreeSet::new()).min(), None);
     // assert_eq!(a.difference(&BTreeSet::new()).max(), None);
     // assert_eq!(a.intersection(&a).min(), None);
@@ -32,12 +35,12 @@ fn test_iter_min_max() {
     // assert_eq!(a.symmetric_difference(&BTreeSet::new()).max(), None);
     // assert_eq!(a.union(&a).min(), None);
     // assert_eq!(a.union(&a).max(), None);
-    a.insert(1);
-    a.insert(2);
-    assert_eq!(a.iter().min(), Some(&1));
-    assert_eq!(a.iter().max(), Some(&2));
-    assert_eq!(a.range(..).min(), Some(&1));
-    assert_eq!(a.range(..).max(), Some(&2));
+    a.insert(&mut arena, 1);
+    a.insert(&mut arena, 2);
+    assert_eq!(a.iter(&arena).min(), Some(&1));
+    assert_eq!(a.iter(&arena).max(), Some(&2));
+    assert_eq!(a.range(&arena, ..).min(), Some(&1));
+    assert_eq!(a.range(&arena, ..).max(), Some(&2));
     // assert_eq!(a.difference(&BTreeSet::new()).min(), Some(&1));
     // assert_eq!(a.difference(&BTreeSet::new()).max(), Some(&2));
     // assert_eq!(a.intersection(&a).min(), Some(&1));
@@ -52,14 +55,15 @@ fn check<F>(a: &[i32], b: &[i32], expected: &[i32], f: F)
 where
     F: FnOnce(&BTreeSet<i32>, &BTreeSet<i32>, &mut dyn FnMut(&i32) -> bool) -> bool,
 {
-    let mut set_a = BTreeSet::new();
-    let mut set_b = BTreeSet::new();
+    let mut arena = SetArena::new();
+    let mut set_a = BTreeSet::new(&arena);
+    let mut set_b = BTreeSet::new(&arena);
 
     for x in a {
-        assert!(set_a.insert(*x))
+        assert!(set_a.insert(&mut arena, *x))
     }
     for y in b {
-        assert!(set_b.insert(*y))
+        assert!(set_b.insert(&mut arena, *y))
     }
 
     let mut i = 0;
@@ -376,21 +380,23 @@ where
 
 #[test]
 fn test_retain() {
-    let mut set = BTreeSet::from([1, 2, 3, 4, 5, 6]);
-    set.retain(|&k| k % 2 == 0);
+    let mut arena = SetArena::new();
+    let mut set = BTreeSet::from_iter(&mut arena, [1, 2, 3, 4, 5, 6]);
+    set.retain(&mut arena, |&k| k % 2 == 0);
     assert_eq!(set.len(), 3);
-    assert!(set.contains(&2));
-    assert!(set.contains(&4));
-    assert!(set.contains(&6));
+    assert!(set.contains(&arena, &2));
+    assert!(set.contains(&arena, &4));
+    assert!(set.contains(&arena, &6));
 }
 
 #[test]
 fn test_drain_filter() {
-    let mut x = BTreeSet::from([1]);
-    let mut y = BTreeSet::from([1]);
+    let mut arena = SetArena::new();
+    let mut x = BTreeSet::from_iter(&mut arena, [1]);
+    let mut y = BTreeSet::from_iter(&mut arena, [1]);
 
-    x.drain_filter(|_| true);
-    y.drain_filter(|_| false);
+    x.drain_filter(&mut arena, |_| true);
+    y.drain_filter(&mut arena, |_| false);
     assert_eq!(x.len(), 0);
     assert_eq!(y.len(), 1);
 }
@@ -400,12 +406,13 @@ fn test_drain_filter_drop_panic_leak() {
     let a = CrashTestDummy::new(0);
     let b = CrashTestDummy::new(1);
     let c = CrashTestDummy::new(2);
-    let mut set = BTreeSet::new();
-    set.insert(a.spawn(Panic::Never));
-    set.insert(b.spawn(Panic::InDrop));
-    set.insert(c.spawn(Panic::Never));
+    let mut arena = SetArena::new();
+    let mut set = BTreeSet::new(&arena);
+    set.insert(&mut arena, a.spawn(Panic::Never));
+    set.insert(&mut arena, b.spawn(Panic::InDrop));
+    set.insert(&mut arena, c.spawn(Panic::Never));
 
-    catch_unwind(move || drop(set.drain_filter(|dummy| dummy.query(true)))).ok();
+    catch_unwind(move || drop(set.drain_filter(&mut arena, |dummy| dummy.query(true)))).ok();
 
     assert_eq!(a.queried(), 1);
     assert_eq!(b.queried(), 1);
@@ -420,13 +427,14 @@ fn test_drain_filter_pred_panic_leak() {
     let a = CrashTestDummy::new(0);
     let b = CrashTestDummy::new(1);
     let c = CrashTestDummy::new(2);
-    let mut set = BTreeSet::new();
-    set.insert(a.spawn(Panic::Never));
-    set.insert(b.spawn(Panic::InQuery));
-    set.insert(c.spawn(Panic::InQuery));
+    let mut arena = SetArena::new();
+    let mut set = BTreeSet::new(&arena);
+    set.insert(&mut arena, a.spawn(Panic::Never));
+    set.insert(&mut arena, b.spawn(Panic::InQuery));
+    set.insert(&mut arena, c.spawn(Panic::InQuery));
 
     catch_unwind(AssertUnwindSafe(|| {
-        drop(set.drain_filter(|dummy| dummy.query(true)))
+        drop(set.drain_filter(&mut arena, |dummy| dummy.query(true)))
     }))
     .ok();
 
@@ -443,47 +451,51 @@ fn test_drain_filter_pred_panic_leak() {
 
 #[test]
 fn test_clear() {
-    let mut x = BTreeSet::new();
-    x.insert(1);
+    let mut arena = SetArena::new();
+    let mut x = BTreeSet::new(&arena);
+    x.insert(&mut arena, 1);
 
-    x.clear();
+    x.clear(&mut arena);
     assert!(x.is_empty());
 }
 #[test]
 fn test_remove() {
-    let mut x = BTreeSet::new();
+    let mut arena = SetArena::new();
+    let mut x = BTreeSet::new(&arena);
     assert!(x.is_empty());
 
-    x.insert(1);
-    x.insert(2);
-    x.insert(3);
-    x.insert(4);
+    x.insert(&mut arena, 1);
+    x.insert(&mut arena, 2);
+    x.insert(&mut arena, 3);
+    x.insert(&mut arena, 4);
 
-    assert_eq!(x.remove(&2), true);
-    assert_eq!(x.remove(&0), false);
-    assert_eq!(x.remove(&5), false);
-    assert_eq!(x.remove(&1), true);
-    assert_eq!(x.remove(&2), false);
-    assert_eq!(x.remove(&3), true);
-    assert_eq!(x.remove(&4), true);
-    assert_eq!(x.remove(&4), false);
+    assert_eq!(x.remove(&mut arena, &2), true);
+    assert_eq!(x.remove(&mut arena, &0), false);
+    assert_eq!(x.remove(&mut arena, &5), false);
+    assert_eq!(x.remove(&mut arena, &1), true);
+    assert_eq!(x.remove(&mut arena, &2), false);
+    assert_eq!(x.remove(&mut arena, &3), true);
+    assert_eq!(x.remove(&mut arena, &4), true);
+    assert_eq!(x.remove(&mut arena, &4), false);
     assert!(x.is_empty());
 }
 
 #[test]
 fn test_zip() {
-    let mut x = BTreeSet::new();
-    x.insert(5);
-    x.insert(12);
-    x.insert(11);
+    let mut arena_x = SetArena::new();
+    let mut x = BTreeSet::new(&arena_x);
+    x.insert(&mut arena_x, 5);
+    x.insert(&mut arena_x, 12);
+    x.insert(&mut arena_x, 11);
 
-    let mut y = BTreeSet::new();
-    y.insert("foo");
-    y.insert("bar");
+    let mut arena_y = SetArena::new();
+    let mut y = BTreeSet::new(&arena_y);
+    y.insert(&mut arena_y, "foo");
+    y.insert(&mut arena_y, "bar");
 
     let x = x;
     let y = y;
-    let mut z = x.iter().zip(&y);
+    let mut z = x.iter(&arena_x).zip(y.iter(&arena_y));
 
     assert_eq!(z.next().unwrap(), (&5, &("bar")));
     assert_eq!(z.next().unwrap(), (&11, &("foo")));
@@ -494,20 +506,22 @@ fn test_zip() {
 fn test_from_iter() {
     let xs = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
-    let set = BTreeSet::from_iter(xs.iter());
+    let mut arena = SetArena::new();
+    let set = BTreeSet::from_iter(&mut arena, xs.iter());
 
     for x in &xs {
-        assert!(set.contains(x));
+        assert!(set.contains(&arena, x));
     }
 }
 
 #[test]
 fn test_show() {
-    let mut set = BTreeSet::new();
-    let empty = BTreeSet::<i32>::new();
+    let mut arena = SetArena::new();
+    let mut set = BTreeSet::new(&arena);
+    let empty = BTreeSet::<i32>::new(&arena);
 
-    set.insert(1);
-    set.insert(2);
+    set.insert(&mut arena, 1);
+    set.insert(&mut arena, 2);
 
     let set_str = format!("{set:?}");
 
@@ -515,33 +529,34 @@ fn test_show() {
     assert_eq!(format!("{empty:?}"), "{}");
 }
 
-#[test]
-fn test_extend_ref() {
-    let mut a = BTreeSet::new();
-    a.insert(1);
+// #[test]
+// fn test_extend_ref() {
+//     let mut arena = SetArena::new();
+//     let mut a = BTreeSet::new(&arena);
+//     a.insert(&mut arena, 1);
 
-    a.extend(&[2, 3, 4]);
+//     a.extend(&mut arena, &[2, 3, 4]);
 
-    assert_eq!(a.len(), 4);
-    assert!(a.contains(&1));
-    assert!(a.contains(&2));
-    assert!(a.contains(&3));
-    assert!(a.contains(&4));
+//     assert_eq!(a.len(), 4);
+//     assert!(a.contains(&arena, &1));
+//     assert!(a.contains(&arena, &2));
+//     assert!(a.contains(&arena, &3));
+//     assert!(a.contains(&arena, &4));
 
-    let mut b = BTreeSet::new();
-    b.insert(5);
-    b.insert(6);
+//     let mut b = BTreeSet::new(&arena);
+//     b.insert(&mut arena, 5);
+//     b.insert(&mut arena, 6);
 
-    a.extend(&b);
+//     a.extend(&b);
 
-    assert_eq!(a.len(), 6);
-    assert!(a.contains(&1));
-    assert!(a.contains(&2));
-    assert!(a.contains(&3));
-    assert!(a.contains(&4));
-    assert!(a.contains(&5));
-    assert!(a.contains(&6));
-}
+//     assert_eq!(a.len(), 6);
+//     assert!(a.contains(&arena, &1));
+//     assert!(a.contains(&arena, &2));
+//     assert!(a.contains(&arena, &3));
+//     assert!(a.contains(&arena, &4));
+//     assert!(a.contains(&arena, &5));
+//     assert!(a.contains(&arena, &6));
+// }
 
 #[test]
 fn test_recovery() {
@@ -568,26 +583,27 @@ fn test_recovery() {
         }
     }
 
-    let mut s = BTreeSet::new();
-    assert_eq!(s.replace(Foo("a", 1)), None);
+    let mut arena = SetArena::new();
+    let mut s = BTreeSet::new(&arena);
+    assert_eq!(s.replace(&mut arena, Foo("a", 1)), None);
     assert_eq!(s.len(), 1);
-    assert_eq!(s.replace(Foo("a", 2)), Some(Foo("a", 1)));
+    assert_eq!(s.replace(&mut arena, Foo("a", 2)), Some(Foo("a", 1)));
     assert_eq!(s.len(), 1);
 
     {
-        let mut it = s.iter();
+        let mut it = s.iter(&arena);
         assert_eq!(it.next(), Some(&Foo("a", 2)));
         assert_eq!(it.next(), None);
     }
 
-    assert_eq!(s.get(&Foo("a", 1)), Some(&Foo("a", 2)));
-    assert_eq!(s.take(&Foo("a", 1)), Some(Foo("a", 2)));
+    assert_eq!(s.get(&arena, &Foo("a", 1)), Some(&Foo("a", 2)));
+    assert_eq!(s.take(&mut arena, &Foo("a", 1)), Some(Foo("a", 2)));
     assert_eq!(s.len(), 0);
 
-    assert_eq!(s.get(&Foo("a", 1)), None);
-    assert_eq!(s.take(&Foo("a", 1)), None);
+    assert_eq!(s.get(&arena, &Foo("a", 1)), None);
+    assert_eq!(s.take(&mut arena, &Foo("a", 1)), None);
 
-    assert_eq!(s.iter().next(), None);
+    assert_eq!(s.iter(&arena).next(), None);
 }
 
 // Don't know how to prevent arenas from making this stuff invariant.
@@ -615,74 +631,83 @@ fn assert_sync() {
         v
     }
 
-    fn iter<T: Sync>(v: &BTreeSet<T>) -> impl Sync + '_ {
-        v.iter()
+    fn iter<'a, T: Sync>(v: &'a BTreeSet<T>, arena: &'a mut SetArena<T>) -> impl Sync + 'a {
+        v.iter(arena)
     }
 
-    fn into_iter<T: Sync>(v: BTreeSet<T>) -> impl Sync {
-        v.into_iter()
+    fn into_iter<'a, T: Sync>(v: BTreeSet<T>, arena: &'a mut SetArena<T>) -> impl Sync + 'a {
+        v.into_iter(arena)
     }
 
-    fn range<T: Sync + Ord>(v: &BTreeSet<T>) -> impl Sync + '_ {
-        v.range(..)
+    fn range<'a, T: Sync + Ord>(v: &'a BTreeSet<T>, arena: &'a mut SetArena<T>) -> impl Sync + 'a {
+        v.range(arena, ..)
     }
 
-    fn drain_filter<T: Sync + Ord>(v: &mut BTreeSet<T>) -> impl Sync + '_ {
-        v.drain_filter(|_| false)
+    fn drain_filter<'a, T: Sync + Ord>(
+        v: &'a mut BTreeSet<T>,
+        arena: &'a mut SetArena<T>,
+    ) -> impl Sync + 'a {
+        v.drain_filter(arena, |_| false)
     }
 
-    // fn difference<T: Sync + Ord>(v: &BTreeSet<T>) -> impl Sync + '_ {
+    // fn difference<'a, T: Sync + Ord>(v: &'a BTreeSet<T>, arena: &'a mut SetArena<T>) -> impl Sync + 'a {
     //     v.difference(&v)
     // }
 
-    // fn intersection<T: Sync + Ord>(v: &BTreeSet<T>) -> impl Sync + '_ {
+    // fn intersection<'a, T: Sync + Ord>(v: &'a BTreeSet<T>, arena: &'a mut SetArena<T>) -> impl Sync + 'a {
     //     v.intersection(&v)
     // }
 
-    // fn symmetric_difference<T: Sync + Ord>(v: &BTreeSet<T>) -> impl Sync + '_ {
+    // fn symmetric_difference<'a, T: Sync + Ord>(v: &'a BTreeSet<T>, arena: &'a mut SetArena<T>) -> impl Sync + 'a {
     //     v.symmetric_difference(&v)
     // }
 
-    // fn union<T: Sync + Ord>(v: &BTreeSet<T>) -> impl Sync + '_ {
+    // fn union<'a, T: Sync + Ord>(v: &'a BTreeSet<T>, arena: &'a mut SetArena<T>) -> impl Sync + 'a {
     //     v.union(&v)
     // }
 }
 
 #[allow(dead_code)]
 fn assert_send() {
-    fn set<T: Send>(v: BTreeSet<T>) -> impl Send {
+    fn set<'a, T: Send>(v: BTreeSet<T>) -> impl Send {
         v
     }
 
-    fn iter<T: Send + Sync>(v: &BTreeSet<T>) -> impl Send + '_ {
-        v.iter()
+    fn iter<'a, T: Send + Sync>(v: &'a BTreeSet<T>, arena: &'a mut SetArena<T>) -> impl Send + 'a {
+        v.iter(arena)
     }
 
-    fn into_iter<T: Send>(v: BTreeSet<T>) -> impl Send {
-        v.into_iter()
+    fn into_iter<'a, T: Send>(v: BTreeSet<T>, arena: &'a mut SetArena<T>) -> impl Send + 'a {
+        v.into_iter(arena)
     }
 
-    fn range<T: Send + Sync + Ord>(v: &BTreeSet<T>) -> impl Send + '_ {
-        v.range(..)
+    fn range<'a, T: Send + Sync + Ord>(
+        v: &'a BTreeSet<T>,
+        arena: &'a mut SetArena<T>,
+    ) -> impl Send + 'a {
+        v.range(arena, ..)
     }
 
-    fn drain_filter<T: Send + Ord>(v: &mut BTreeSet<T>) -> impl Send + '_ {
-        v.drain_filter(|_| false)
+    fn drain_filter<'a, T: Send + Ord>(
+        v: &'a mut BTreeSet<T>,
+        arena: &'a mut SetArena<T>,
+    ) -> impl Send + 'a {
+        v.drain_filter(arena, |_| false)
     }
 
-    // fn difference<T: Send + Sync + Ord>(v: &BTreeSet<T>) -> impl Send + '_ {
+    // fn difference<'a, T: Send + Sync + Ord>(v: &'a BTreeSet<T>, arena: &'a mut SetArena<T>) -> impl Send + 'a {
     //     v.difference(&v)
     // }
 
-    // fn intersection<T: Send + Sync + Ord>(v: &BTreeSet<T>) -> impl Send + '_ {
+    // fn intersection<'a, T: Send + Sync + Ord>(v: &'a BTreeSet<T>, arena: &'a mut SetArena<T>) -> impl Send + 'a {
     //     v.intersection(&v)
     // }
 
-    // fn symmetric_difference<T: Send + Sync + Ord>(v: &BTreeSet<T>) -> impl Send + '_ {
+    // fn symmetric_difference<'a, T: Send + Sync + Ord>(v: &'a BTreeSet<T>, arena: &'a mut SetArena<T>) -> impl Send + 'a {
     //     v.symmetric_difference(&v)
     // }
 
-    // fn union<T: Send + Sync + Ord>(v: &BTreeSet<T>) -> impl Send + '_ {
+    // fn union<'a, T: Send + Sync + Ord>(v: &'a BTreeSet<T>, arena: &'a mut SetArena<T>) -> impl Send + 'a {
     //     v.union(&v)
     // }
 }
@@ -691,97 +716,102 @@ fn assert_send() {
 // Check that the member-like functions conditionally provided by #[derive()]
 // are not overridden by genuine member functions with a different signature.
 fn assert_derives() {
-    fn hash<T: Hash, H: Hasher>(v: BTreeSet<T>, state: &mut H) {
-        v.hash(state);
+    fn hash<T: Hash, H: Hasher>(arena: &SetArena<T>, v: BTreeSet<T>, state: &mut H) {
+        v.hash(arena, state);
         // Tested much more thoroughly outside the crate in btree_set_hash.rs
     }
-    fn eq<T: PartialEq>(v: BTreeSet<T>) {
-        let _ = v.eq(&v);
+    fn eq<T: PartialEq>(arena: &SetArena<T>, v: BTreeSet<T>) {
+        let _ = v.eq(arena, &v);
     }
-    fn ne<T: PartialEq>(v: BTreeSet<T>) {
-        let _ = v.ne(&v);
+    fn ne<T: PartialEq>(arena: &SetArena<T>, v: BTreeSet<T>) {
+        let _ = v.ne(arena, &v);
     }
-    fn cmp<T: Ord>(v: BTreeSet<T>) {
-        let _ = v.cmp(&v);
+    fn cmp<T: Ord>(arena: &SetArena<T>, v: BTreeSet<T>) {
+        let _ = v.cmp(arena, &v);
     }
-    fn min<T: Ord>(v: BTreeSet<T>, w: BTreeSet<T>) {
-        let _ = v.min(w);
-    }
-    fn max<T: Ord>(v: BTreeSet<T>, w: BTreeSet<T>) {
-        let _ = v.max(w);
-    }
-    fn clamp<T: Ord>(v: BTreeSet<T>, w: BTreeSet<T>, x: BTreeSet<T>) {
-        let _ = v.clamp(w, x);
-    }
-    fn partial_cmp<T: PartialOrd>(v: &BTreeSet<T>) {
-        let _ = v.partial_cmp(&v);
+    // fn min<T: Ord>(v: BTreeSet<T>, w: BTreeSet<T>) {
+    //     let _ = v.min(w);
+    // }
+    // fn max<T: Ord>(v: BTreeSet<T>, w: BTreeSet<T>) {
+    //     let _ = v.max(w);
+    // }
+    // fn clamp<T: Ord>(v: BTreeSet<T>, w: BTreeSet<T>, x: BTreeSet<T>) {
+    //     let _ = v.clamp(w, x);
+    // }
+    fn partial_cmp<T: PartialOrd>(arena: &SetArena<T>, v: &BTreeSet<T>) {
+        let _ = v.partial_cmp(arena, &v);
     }
 }
 
 #[test]
 fn test_ord_absence() {
-    fn set<K>(mut set: BTreeSet<K>) {
+    fn set<K>(arena: &mut SetArena<K>, mut set: BTreeSet<K>) {
         let _ = set.is_empty();
         let _ = set.len();
-        set.clear();
-        let _ = set.iter();
-        let _ = set.into_iter();
+        set.clear(arena);
+        let _ = set.iter(arena);
+        let _ = set.into_iter(arena);
     }
 
-    fn set_debug<K: Debug>(set: BTreeSet<K>) {
+    fn set_debug<K: Debug>(arena: &mut SetArena<K>, set: BTreeSet<K>) {
         format!("{set:?}");
-        format!("{:?}", set.iter());
-        format!("{:?}", set.into_iter());
+        format!("{:?}", set.iter(&arena));
+        format!("{:?}", set.into_iter(arena));
     }
 
-    fn set_clone<K: Clone>(mut set: BTreeSet<K>) {
-        set.clone_from(&set.clone());
+    fn set_clone<K: Clone>(arena: &mut SetArena<K>, mut set: BTreeSet<K>) {
+        set = set.clone(arena);
     }
 
     #[derive(Debug, Clone)]
     struct NonOrd;
-    set(BTreeSet::<NonOrd>::new());
-    set_debug(BTreeSet::<NonOrd>::new());
-    set_clone(BTreeSet::<NonOrd>::default());
+    let mut arena = SetArena::new();
+    let s = BTreeSet::<NonOrd>::new(&arena);
+    set(&mut arena, s);
+    let s = BTreeSet::<NonOrd>::new(&arena);
+    set_debug(&mut arena, s);
+    let s = BTreeSet::<NonOrd>::new(&arena);
+    set_clone(&mut arena, s);
 }
 
-#[test]
-fn test_append() {
-    let mut a = BTreeSet::new();
-    a.insert(1);
-    a.insert(2);
-    a.insert(3);
+// #[test]
+// fn test_append() {
+//     let mut arena = SetArena::new();
+//     let mut a = BTreeSet::new(&arena);
+//     a.insert(&mut arena, 1);
+//     a.insert(&mut arena, 2);
+//     a.insert(&mut arena, 3);
 
-    let mut b = BTreeSet::new();
-    b.insert(3);
-    b.insert(4);
-    b.insert(5);
+//     let mut b = BTreeSet::new(&arena);
+//     b.insert(&mut arena, 3);
+//     b.insert(&mut arena, 4);
+//     b.insert(&mut arena, 5);
 
-    a.append(&mut b);
+//     a.append(&mut b);
 
-    assert_eq!(a.len(), 5);
-    assert_eq!(b.len(), 0);
+//     assert_eq!(a.len(), 5);
+//     assert_eq!(b.len(), 0);
 
-    assert_eq!(a.contains(&1), true);
-    assert_eq!(a.contains(&2), true);
-    assert_eq!(a.contains(&3), true);
-    assert_eq!(a.contains(&4), true);
-    assert_eq!(a.contains(&5), true);
-}
+//     assert_eq!(a.contains(&arena, &1), true);
+//     assert_eq!(a.contains(&arena, &2), true);
+//     assert_eq!(a.contains(&arena, &3), true);
+//     assert_eq!(a.contains(&arena, &4), true);
+//     assert_eq!(a.contains(&arena, &5), true);
+// }
 
 #[test]
 fn test_first_last() {
     // let mut a = BTreeSet::new();
     // assert_eq!(a.first(), None);
     // assert_eq!(a.last(), None);
-    // a.insert(1);
+    // a.insert(&mut arena, 1);
     // assert_eq!(a.first(), Some(&1));
     // assert_eq!(a.last(), Some(&1));
-    // a.insert(2);
+    // a.insert(&mut arena, 2);
     // assert_eq!(a.first(), Some(&1));
     // assert_eq!(a.last(), Some(&2));
     // for i in 3..=12 {
-    //     a.insert(i);
+    //     a.insert(&mut arena, i);
     // }
     // assert_eq!(a.first(), Some(&1));
     // assert_eq!(a.last(), Some(&12));
@@ -857,29 +887,32 @@ fn rand_data(len: usize) -> Vec<u32> {
 
 #[test]
 fn from_array() {
-    let set = BTreeSet::from([1, 2, 3, 4]);
-    let unordered_duplicates = BTreeSet::from([4, 1, 4, 3, 2]);
-    assert_eq!(set, unordered_duplicates);
+    let mut arena = SetArena::new();
+    let set = BTreeSet::from_iter(&mut arena, [1, 2, 3, 4]);
+    let unordered_duplicates = BTreeSet::from_iter(&mut arena, [4, 1, 4, 3, 2]);
+    assert!(set.eq(&arena, &unordered_duplicates));
 }
 
 #[should_panic(expected = "range start is greater than range end in BTree{Set,Map}")]
 #[test]
 fn test_range_panic_1() {
-    let mut set = BTreeSet::new();
-    set.insert(3);
-    set.insert(5);
-    set.insert(8);
+    let mut arena = SetArena::new();
+    let mut set = BTreeSet::new(&arena);
+    set.insert(&mut arena, 3);
+    set.insert(&mut arena, 5);
+    set.insert(&mut arena, 8);
 
-    let _invalid_range = set.range((Included(&8), Included(&3)));
+    let _invalid_range = set.range(&arena, (Included(&8), Included(&3)));
 }
 
 #[should_panic(expected = "range start and end are equal and excluded in BTree{Set,Map}")]
 #[test]
 fn test_range_panic_2() {
-    let mut set = BTreeSet::new();
-    set.insert(3);
-    set.insert(5);
-    set.insert(8);
+    let mut arena = SetArena::new();
+    let mut set = BTreeSet::new(&arena);
+    set.insert(&mut arena, 3);
+    set.insert(&mut arena, 5);
+    set.insert(&mut arena, 8);
 
-    let _invalid_range = set.range((Excluded(&5), Excluded(&5)));
+    let _invalid_range = set.range(&arena, (Excluded(&5), Excluded(&5)));
 }

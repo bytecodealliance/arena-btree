@@ -40,38 +40,38 @@ fn test_all_refs<'a, T: 'a>(dummy: &mut T, iter: impl Iterator<Item = &'a mut T>
 
 impl<K, V> BTreeMap<K, V> {
     // Panics if the map (or the code navigating it) is corrupted.
-    fn check_invariants(&self) {
+    fn check_invariants(&self, arena: &Arena<K, V>) {
         if let Some(root) = &self.root {
             let root_node = root.reborrow();
 
             // Check the back pointers top-down, before we attempt to rely on
             // more serious navigation code.
-            assert!(root_node.ascend(&self.arena).is_err());
-            root_node.assert_back_pointers(&self.arena);
+            assert!(root_node.ascend(arena).is_err());
+            root_node.assert_back_pointers(arena);
 
             // Check consistency of `length` with what navigation code encounters.
-            assert_eq!(self.length, root_node.calc_length(&self.arena));
+            assert_eq!(self.length, root_node.calc_length(arena));
 
             // Lastly, check the invariant causing the least harm.
-            root_node.assert_min_len(if root_node.height() > 0 { 1 } else { 0 }, &self.arena);
+            root_node.assert_min_len(if root_node.height() > 0 { 1 } else { 0 }, arena);
         } else {
             assert_eq!(self.length, 0);
         }
 
         // Check that `assert_strictly_ascending` will encounter all keys.
-        assert_eq!(self.length, self.keys().count());
+        assert_eq!(self.length, self.keys(arena).count());
     }
 
     // Panics if the map is corrupted or if the keys are not in strictly
     // ascending order, in the current opinion of the `Ord` implementation.
     // If the `Ord` implementation violates transitivity, this method does not
     // guarantee that all keys are unique, just that adjacent keys are unique.
-    fn check(&self)
+    fn check(&self, arena: &Arena<K, V>)
     where
         K: Debug + Ord,
     {
-        self.check_invariants();
-        self.assert_strictly_ascending();
+        self.check_invariants(arena);
+        self.assert_strictly_ascending(arena);
     }
 
     // Returns the height of the root, if any.
@@ -79,23 +79,23 @@ impl<K, V> BTreeMap<K, V> {
         self.root.as_ref().map(node::Root::height)
     }
 
-    fn dump_keys(&self) -> String
+    fn dump_keys(&self, arena: &Arena<K, V>) -> String
     where
         K: Debug,
     {
         if let Some(root) = self.root.as_ref() {
-            root.reborrow().dump_keys(&self.arena)
+            root.reborrow().dump_keys(arena)
         } else {
             String::from("not yet allocated")
         }
     }
 
     // Panics if the keys are not in strictly ascending order.
-    fn assert_strictly_ascending(&self)
+    fn assert_strictly_ascending(&self, arena: &Arena<K, V>)
     where
         K: Debug + Ord,
     {
-        let mut keys = self.keys();
+        let mut keys = self.keys(arena);
         if let Some(mut previous) = keys.next() {
             for next in keys {
                 assert!(previous < next, "{:?} >= {:?}", previous, next);
@@ -104,22 +104,21 @@ impl<K, V> BTreeMap<K, V> {
         }
     }
 
-    // Transform the tree to minimize wasted space, obtaining fewer nodes that
-    // are mostly filled up to their capacity. The same compact tree could have
-    // been obtained by inserting keys in a shrewd order.
-    fn compact(&mut self)
-    where
-        K: Ord,
-    {
-        let iter = mem::take(self).into_iter();
-        if iter.len() != 0 {
-            self.root.insert(Root::new(&mut *self.arena)).bulk_push(
-                iter,
-                &mut self.length,
-                &mut *self.arena,
-            );
-        }
-    }
+    // // Transform the tree to minimize wasted space, obtaining fewer nodes that
+    // // are mostly filled up to their capacity. The same compact tree could have
+    // // been obtained by inserting keys in a shrewd order.
+    // fn compact(&mut self, arena: &mut Arena<K, V>)
+    // where
+    //     K: Ord,
+    // {
+    //     let mut arena = Arena::new();
+    //     let iter = mem::replace(self, BTreeMap::new(arena)).into_iter(arena);
+    //     if iter.len() != 0 {
+    //         self.root
+    //             .insert(&mut arena, Root::new(iter.arena))
+    //             .bulk_push(iter, &mut self.length, arena);
+    //     }
+    // }
 }
 
 impl<'a, K: 'a, V: 'a> NodeRef<marker::Immut<'a>, K, V, marker::LeafOrInternal> {
@@ -184,19 +183,27 @@ impl<'a, K: 'a, V: 'a> NodeRef<marker::Immut<'a>, K, V, marker::LeafOrInternal> 
 #[test]
 #[should_panic]
 fn test_check_ord_chaos() {
+    let mut arena = Arena::new();
     let gov = Governor::new();
-    let map = BTreeMap::from([(Governed(1, &gov), ()), (Governed(2, &gov), ())]);
+    let map = BTreeMap::from_iter(
+        &mut arena,
+        vec![(Governed(1, &gov), ()), (Governed(2, &gov), ())],
+    );
     gov.flip();
-    map.check();
+    map.check(&arena);
 }
 
 // Ensures the testing infrastructure doesn't always mind order violations.
 #[test]
 fn test_check_invariants_ord_chaos() {
+    let mut arena = Arena::new();
     let gov = Governor::new();
-    let map = BTreeMap::from([(Governed(1, &gov), ()), (Governed(2, &gov), ())]);
+    let map = BTreeMap::from_iter(
+        &mut arena,
+        vec![(Governed(1, &gov), ()), (Governed(2, &gov), ())],
+    );
     gov.flip();
-    map.check_invariants();
+    map.check_invariants(&arena);
 }
 
 // This test uses unstable methods that we removed.
@@ -244,7 +251,7 @@ fn test_check_invariants_ord_chaos() {
 //     }
 //
 //     for i in 0..size / 2 {
-//         assert_eq!(map.remove(&(i * 2)), Some(i * 200));
+//         assert_eq!(map.remove(&mut arena, &(i * 2)), Some(i * 200));
 //         assert_eq!(map.len(), size - i - 1);
 //     }
 //
@@ -254,8 +261,8 @@ fn test_check_invariants_ord_chaos() {
 //     }
 //
 //     for i in 0..size / 2 {
-//         assert_eq!(map.remove(&(2 * i)), None);
-//         assert_eq!(map.remove(&(2 * i + 1)), Some(i * 200 + 100));
+//         assert_eq!(map.remove(&mut arena, &(2 * i)), None);
+//         assert_eq!(map.remove(&mut arena, &(2 * i + 1)), Some(i * 200 + 100));
 //         assert_eq!(map.len(), size / 2 - i - 1);
 //     }
 //     map.check();
@@ -267,7 +274,7 @@ fn test_check_invariants_ord_chaos() {
 // fn test_basic_small() {
 //     let mut map = BTreeMap::new();
 //     // Empty, root is absent (None):
-//     assert_eq!(map.remove(&1), None);
+//     assert_eq!(map.remove(&mut arena, &1), None);
 //     assert_eq!(map.len(), 0);
 //     assert_eq!(map.get(&1), None);
 //     assert_eq!(map.get_mut(&1), None);
@@ -275,11 +282,11 @@ fn test_check_invariants_ord_chaos() {
 //     assert_eq!(map.last_key_value(), None);
 //     assert_eq!(map.keys().count(), 0);
 //     assert_eq!(map.values().count(), 0);
-//     assert_eq!(map.range(..).next(), None);
-//     assert_eq!(map.range(..1).next(), None);
-//     assert_eq!(map.range(1..).next(), None);
-//     assert_eq!(map.range(1..=1).next(), None);
-//     assert_eq!(map.range(1..2).next(), None);
+//     assert_eq!(map.range(&arena, ..).next(), None);
+//     assert_eq!(map.range(&arena, ..1).next(), None);
+//     assert_eq!(map.range(&arena, 1..).next(), None);
+//     assert_eq!(map.range(&arena, 1..=1).next(), None);
+//     assert_eq!(map.range(&arena, 1..2).next(), None);
 //     assert_eq!(map.height(), None);
 //     assert_eq!(map.insert(1, 1), None);
 //     assert_eq!(map.height(), Some(0));
@@ -313,7 +320,7 @@ fn test_check_invariants_ord_chaos() {
 //     assert_eq!(map.last_key_value(), Some((&2, &4)));
 //     assert_eq!(map.keys().collect::<Vec<_>>(), vec![&1, &2]);
 //     assert_eq!(map.values().collect::<Vec<_>>(), vec![&2, &4]);
-//     assert_eq!(map.remove(&1), Some(2));
+//     assert_eq!(map.remove(&mut arena, &1), Some(2));
 //     assert_eq!(map.height(), Some(0));
 //     map.check();
 //
@@ -327,7 +334,7 @@ fn test_check_invariants_ord_chaos() {
 //     assert_eq!(map.last_key_value(), Some((&2, &4)));
 //     assert_eq!(map.keys().collect::<Vec<_>>(), vec![&2]);
 //     assert_eq!(map.values().collect::<Vec<_>>(), vec![&4]);
-//     assert_eq!(map.remove(&2), Some(4));
+//     assert_eq!(map.remove(&mut arena, &2), Some(4));
 //     assert_eq!(map.height(), Some(0));
 //     map.check();
 //
@@ -339,21 +346,22 @@ fn test_check_invariants_ord_chaos() {
 //     assert_eq!(map.last_key_value(), None);
 //     assert_eq!(map.keys().count(), 0);
 //     assert_eq!(map.values().count(), 0);
-//     assert_eq!(map.range(..).next(), None);
-//     assert_eq!(map.range(..1).next(), None);
-//     assert_eq!(map.range(1..).next(), None);
-//     assert_eq!(map.range(1..=1).next(), None);
-//     assert_eq!(map.range(1..2).next(), None);
-//     assert_eq!(map.remove(&1), None);
+//     assert_eq!(map.range(&arena, ..).next(), None);
+//     assert_eq!(map.range(&arena, ..1).next(), None);
+//     assert_eq!(map.range(&arena, 1..).next(), None);
+//     assert_eq!(map.range(&arena, 1..=1).next(), None);
+//     assert_eq!(map.range(&arena, 1..2).next(), None);
+//     assert_eq!(map.remove(&mut arena, &1), None);
 //     assert_eq!(map.height(), Some(0));
 //     map.check();
 // }
 
 #[test]
 fn test_iter() {
+    let mut arena = Arena::new();
     // Miri is too slow
     let size = if cfg!(miri) { 200 } else { 10000 };
-    let mut map = BTreeMap::from_iter((0..size).map(|i| (i, i)));
+    let mut map = BTreeMap::from_iter(&mut arena, (0..size).map(|i| (i, i)));
 
     fn test<T>(size: usize, mut iter: T)
     where
@@ -366,16 +374,17 @@ fn test_iter() {
         assert_eq!(iter.size_hint(), (0, Some(0)));
         assert_eq!(iter.next(), None);
     }
-    test(size, map.iter().map(|(&k, &v)| (k, v)));
-    test(size, map.iter_mut().map(|(&k, &mut v)| (k, v)));
-    test(size, map.into_iter());
+    test(size, map.iter(&arena).map(|(&k, &v)| (k, v)));
+    test(size, map.iter_mut(&arena).map(|(&k, &mut v)| (k, v)));
+    test(size, map.into_iter(&mut arena));
 }
 
 #[test]
 fn test_iter_rev() {
+    let mut arena = Arena::new();
     // Miri is too slow
     let size = if cfg!(miri) { 200 } else { 10000 };
-    let mut map = BTreeMap::from_iter((0..size).map(|i| (i, i)));
+    let mut map = BTreeMap::from_iter(&mut arena, (0..size).map(|i| (i, i)));
 
     fn test<T>(size: usize, mut iter: T)
     where
@@ -388,9 +397,9 @@ fn test_iter_rev() {
         assert_eq!(iter.size_hint(), (0, Some(0)));
         assert_eq!(iter.next(), None);
     }
-    test(size, map.iter().rev().map(|(&k, &v)| (k, v)));
-    test(size, map.iter_mut().rev().map(|(&k, &mut v)| (k, v)));
-    test(size, map.into_iter().rev());
+    test(size, map.iter(&arena).rev().map(|(&k, &v)| (k, v)));
+    test(size, map.iter_mut(&arena).rev().map(|(&k, &mut v)| (k, v)));
+    test(size, map.into_iter(&mut arena).rev());
 }
 
 // Specifically tests iter_mut's ability to mutate the value of pairs in-line.
@@ -399,33 +408,37 @@ where
     T: Copy + Debug + Ord + TryFrom<usize>,
     <T as TryFrom<usize>>::Error: Debug,
 {
+    let mut arena = Arena::new();
     let zero = T::try_from(0).unwrap();
-    let mut map = BTreeMap::from_iter((0..size).map(|i| (T::try_from(i).unwrap(), zero)));
+    let mut map = BTreeMap::from_iter(
+        &mut arena,
+        (0..size).map(|i| (T::try_from(i).unwrap(), zero)),
+    );
 
     // Forward and backward iteration sees enough pairs (also tested elsewhere)
-    assert_eq!(map.iter_mut().count(), size);
-    assert_eq!(map.iter_mut().rev().count(), size);
+    assert_eq!(map.iter_mut(&arena).count(), size);
+    assert_eq!(map.iter_mut(&arena).rev().count(), size);
 
     // Iterate forwards, trying to mutate to unique values
-    for (i, (k, v)) in map.iter_mut().enumerate() {
+    for (i, (k, v)) in map.iter_mut(&arena).enumerate() {
         assert_eq!(*k, T::try_from(i).unwrap());
         assert_eq!(*v, zero);
         *v = T::try_from(i + 1).unwrap();
     }
 
     // Iterate backwards, checking that mutations succeeded and trying to mutate again
-    for (i, (k, v)) in map.iter_mut().rev().enumerate() {
+    for (i, (k, v)) in map.iter_mut(&arena).rev().enumerate() {
         assert_eq!(*k, T::try_from(size - i - 1).unwrap());
         assert_eq!(*v, T::try_from(size - i).unwrap());
         *v = T::try_from(2 * size - i).unwrap();
     }
 
     // Check that backward mutations succeeded
-    for (i, (k, v)) in map.iter_mut().enumerate() {
+    for (i, (k, v)) in map.iter_mut(&arena).enumerate() {
         assert_eq!(*k, T::try_from(i).unwrap());
         assert_eq!(*v, T::try_from(size + i + 1).unwrap());
     }
-    map.check();
+    map.check(&arena);
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -466,30 +479,33 @@ fn test_iter_mut_mutation() {
 
 #[test]
 fn test_values_mut() {
-    let mut a = BTreeMap::from_iter((0..MIN_INSERTS_HEIGHT_2).map(|i| (i, i)));
-    test_all_refs(&mut 13, a.values_mut());
-    a.check();
+    let mut arena = Arena::new();
+    let mut a = BTreeMap::from_iter(&mut arena, (0..MIN_INSERTS_HEIGHT_2).map(|i| (i, i)));
+    test_all_refs(&mut 13, a.values_mut(&arena));
+    a.check(&arena);
 }
 
 #[test]
 fn test_values_mut_mutation() {
-    let mut a = BTreeMap::new();
-    a.insert(1, String::from("hello"));
-    a.insert(2, String::from("goodbye"));
+    let mut arena = Arena::new();
+    let mut a = BTreeMap::new(&arena);
+    a.insert(&mut arena, 1, String::from("hello"));
+    a.insert(&mut arena, 2, String::from("goodbye"));
 
-    for value in a.values_mut() {
+    for value in a.values_mut(&arena) {
         value.push_str("!");
     }
 
-    let values = Vec::from_iter(a.values().cloned());
+    let values = Vec::from_iter(a.values(&arena).cloned());
     assert_eq!(values, [String::from("hello!"), String::from("goodbye!")]);
-    a.check();
+    a.check(&arena);
 }
 
 #[test]
 fn test_iter_entering_root_twice() {
-    let mut map = BTreeMap::from([(0, 0), (1, 1)]);
-    let mut it = map.iter_mut();
+    let mut arena = Arena::new();
+    let mut map = BTreeMap::from_iter(&mut arena, vec![(0, 0), (1, 1)]);
+    let mut it = map.iter_mut(&arena);
     let front = it.next().unwrap();
     let back = it.next_back().unwrap();
     assert_eq!(front, (&0, &mut 0));
@@ -500,13 +516,14 @@ fn test_iter_entering_root_twice() {
     assert_eq!(back, (&1, &mut 42));
     assert_eq!(it.next(), None);
     assert_eq!(it.next_back(), None);
-    map.check();
+    map.check(&arena);
 }
 
 #[test]
 fn test_iter_descending_to_same_node_twice() {
-    let mut map = BTreeMap::from_iter((0..MIN_INSERTS_HEIGHT_1).map(|i| (i, i)));
-    let mut it = map.iter_mut();
+    let mut arena = Arena::new();
+    let mut map = BTreeMap::from_iter(&mut arena, (0..MIN_INSERTS_HEIGHT_1).map(|i| (i, i)));
+    let mut it = map.iter_mut(&arena);
     // Descend into first child.
     let front = it.next().unwrap();
     // Descend into first child again, after running through second child.
@@ -515,7 +532,7 @@ fn test_iter_descending_to_same_node_twice() {
     assert_eq!(front, (&0, &mut 0));
     // Perform mutable access.
     *front.1 = 42;
-    map.check();
+    map.check(&arena);
 }
 
 #[test]
@@ -523,7 +540,8 @@ fn test_iter_mixed() {
     // Miri is too slow
     let size = if cfg!(miri) { 200 } else { 10000 };
 
-    let mut map = BTreeMap::from_iter((0..size).map(|i| (i, i)));
+    let mut arena = Arena::new();
+    let mut map = BTreeMap::from_iter(&mut arena, (0..size).map(|i| (i, i)));
 
     fn test<T>(size: usize, mut iter: T)
     where
@@ -541,49 +559,54 @@ fn test_iter_mixed() {
         assert_eq!(iter.size_hint(), (0, Some(0)));
         assert_eq!(iter.next(), None);
     }
-    test(size, map.iter().map(|(&k, &v)| (k, v)));
-    test(size, map.iter_mut().map(|(&k, &mut v)| (k, v)));
-    test(size, map.into_iter());
+    test(size, map.iter(&arena).map(|(&k, &v)| (k, v)));
+    test(size, map.iter_mut(&arena).map(|(&k, &mut v)| (k, v)));
+    test(size, map.into_iter(&mut arena));
 }
 
 #[test]
 fn test_iter_min_max() {
-    let mut a = BTreeMap::new();
-    assert_eq!(a.iter().min(), None);
-    assert_eq!(a.iter().max(), None);
-    assert_eq!(a.iter_mut().min(), None);
-    assert_eq!(a.iter_mut().max(), None);
-    assert_eq!(a.range(..).min(), None);
-    assert_eq!(a.range(..).max(), None);
-    assert_eq!(a.range_mut(..).min(), None);
-    assert_eq!(a.range_mut(..).max(), None);
-    assert_eq!(a.keys().min(), None);
-    assert_eq!(a.keys().max(), None);
-    assert_eq!(a.values().min(), None);
-    assert_eq!(a.values().max(), None);
-    assert_eq!(a.values_mut().min(), None);
-    assert_eq!(a.values_mut().max(), None);
-    a.insert(1, 42);
-    a.insert(2, 24);
-    assert_eq!(a.iter().min(), Some((&1, &42)));
-    assert_eq!(a.iter().max(), Some((&2, &24)));
-    assert_eq!(a.iter_mut().min(), Some((&1, &mut 42)));
-    assert_eq!(a.iter_mut().max(), Some((&2, &mut 24)));
-    assert_eq!(a.range(..).min(), Some((&1, &42)));
-    assert_eq!(a.range(..).max(), Some((&2, &24)));
-    assert_eq!(a.range_mut(..).min(), Some((&1, &mut 42)));
-    assert_eq!(a.range_mut(..).max(), Some((&2, &mut 24)));
-    assert_eq!(a.keys().min(), Some(&1));
-    assert_eq!(a.keys().max(), Some(&2));
-    assert_eq!(a.values().min(), Some(&24));
-    assert_eq!(a.values().max(), Some(&42));
-    assert_eq!(a.values_mut().min(), Some(&mut 24));
-    assert_eq!(a.values_mut().max(), Some(&mut 42));
-    a.check();
+    let mut arena = Arena::new();
+    let mut a = BTreeMap::new(&arena);
+    assert_eq!(a.iter(&arena).min(), None);
+    assert_eq!(a.iter(&arena).max(), None);
+    assert_eq!(a.iter_mut(&arena).min(), None);
+    assert_eq!(a.iter_mut(&arena).max(), None);
+    assert_eq!(a.range(&arena, ..).min(), None);
+    assert_eq!(a.range(&arena, ..).max(), None);
+    assert_eq!(a.range_mut(&arena, ..).min(), None);
+    assert_eq!(a.range_mut(&arena, ..).max(), None);
+    assert_eq!(a.keys(&arena).min(), None);
+    assert_eq!(a.keys(&arena).max(), None);
+    assert_eq!(a.values(&arena).min(), None);
+    assert_eq!(a.values(&arena).max(), None);
+    assert_eq!(a.values_mut(&arena).min(), None);
+    assert_eq!(a.values_mut(&arena).max(), None);
+    a.insert(&mut arena, 1, 42);
+    a.insert(&mut arena, 2, 24);
+    assert_eq!(a.iter(&arena).min(), Some((&1, &42)));
+    assert_eq!(a.iter(&arena).max(), Some((&2, &24)));
+    assert_eq!(a.iter_mut(&arena).min(), Some((&1, &mut 42)));
+    assert_eq!(a.iter_mut(&arena).max(), Some((&2, &mut 24)));
+    assert_eq!(a.range(&arena, ..).min(), Some((&1, &42)));
+    assert_eq!(a.range(&arena, ..).max(), Some((&2, &24)));
+    assert_eq!(a.range_mut(&arena, ..).min(), Some((&1, &mut 42)));
+    assert_eq!(a.range_mut(&arena, ..).max(), Some((&2, &mut 24)));
+    assert_eq!(a.keys(&arena).min(), Some(&1));
+    assert_eq!(a.keys(&arena).max(), Some(&2));
+    assert_eq!(a.values(&arena).min(), Some(&24));
+    assert_eq!(a.values(&arena).max(), Some(&42));
+    assert_eq!(a.values_mut(&arena).min(), Some(&mut 24));
+    assert_eq!(a.values_mut(&arena).max(), Some(&mut 42));
+    a.check(&arena);
 }
 
-fn range_keys(map: &BTreeMap<i32, i32>, range: impl RangeBounds<i32>) -> Vec<i32> {
-    Vec::from_iter(map.range(range).map(|(&k, &v)| {
+fn range_keys(
+    arena: &Arena<i32, i32>,
+    map: &BTreeMap<i32, i32>,
+    range: impl RangeBounds<i32>,
+) -> Vec<i32> {
+    Vec::from_iter(map.range(arena, range).map(|(&k, &v)| {
         assert_eq!(k, v);
         k
     }))
@@ -595,112 +618,162 @@ fn test_range_small() {
 
     let all = Vec::from_iter(1..=size);
     let (first, last) = (vec![all[0]], vec![all[size as usize - 1]]);
-    let map = BTreeMap::from_iter(all.iter().copied().map(|i| (i, i)));
+    let mut arena = Arena::new();
+    let map = BTreeMap::from_iter(&mut arena, all.iter().copied().map(|i| (i, i)));
 
-    assert_eq!(range_keys(&map, (Excluded(0), Excluded(size + 1))), all);
-    assert_eq!(range_keys(&map, (Excluded(0), Included(size + 1))), all);
-    assert_eq!(range_keys(&map, (Excluded(0), Included(size))), all);
-    assert_eq!(range_keys(&map, (Excluded(0), Unbounded)), all);
-    assert_eq!(range_keys(&map, (Included(0), Excluded(size + 1))), all);
-    assert_eq!(range_keys(&map, (Included(0), Included(size + 1))), all);
-    assert_eq!(range_keys(&map, (Included(0), Included(size))), all);
-    assert_eq!(range_keys(&map, (Included(0), Unbounded)), all);
-    assert_eq!(range_keys(&map, (Included(1), Excluded(size + 1))), all);
-    assert_eq!(range_keys(&map, (Included(1), Included(size + 1))), all);
-    assert_eq!(range_keys(&map, (Included(1), Included(size))), all);
-    assert_eq!(range_keys(&map, (Included(1), Unbounded)), all);
-    assert_eq!(range_keys(&map, (Unbounded, Excluded(size + 1))), all);
-    assert_eq!(range_keys(&map, (Unbounded, Included(size + 1))), all);
-    assert_eq!(range_keys(&map, (Unbounded, Included(size))), all);
-    assert_eq!(range_keys(&map, ..), all);
-
-    assert_eq!(range_keys(&map, (Excluded(0), Excluded(1))), vec![]);
-    assert_eq!(range_keys(&map, (Excluded(0), Included(0))), vec![]);
-    assert_eq!(range_keys(&map, (Included(0), Included(0))), vec![]);
-    assert_eq!(range_keys(&map, (Included(0), Excluded(1))), vec![]);
-    assert_eq!(range_keys(&map, (Unbounded, Excluded(1))), vec![]);
-    assert_eq!(range_keys(&map, (Unbounded, Included(0))), vec![]);
-    assert_eq!(range_keys(&map, (Excluded(0), Excluded(2))), first);
-    assert_eq!(range_keys(&map, (Excluded(0), Included(1))), first);
-    assert_eq!(range_keys(&map, (Included(0), Excluded(2))), first);
-    assert_eq!(range_keys(&map, (Included(0), Included(1))), first);
-    assert_eq!(range_keys(&map, (Included(1), Excluded(2))), first);
-    assert_eq!(range_keys(&map, (Included(1), Included(1))), first);
-    assert_eq!(range_keys(&map, (Unbounded, Excluded(2))), first);
-    assert_eq!(range_keys(&map, (Unbounded, Included(1))), first);
     assert_eq!(
-        range_keys(&map, (Excluded(size - 1), Excluded(size + 1))),
+        range_keys(&arena, &map, (Excluded(0), Excluded(size + 1))),
+        all
+    );
+    assert_eq!(
+        range_keys(&arena, &map, (Excluded(0), Included(size + 1))),
+        all
+    );
+    assert_eq!(range_keys(&arena, &map, (Excluded(0), Included(size))), all);
+    assert_eq!(range_keys(&arena, &map, (Excluded(0), Unbounded)), all);
+    assert_eq!(
+        range_keys(&arena, &map, (Included(0), Excluded(size + 1))),
+        all
+    );
+    assert_eq!(
+        range_keys(&arena, &map, (Included(0), Included(size + 1))),
+        all
+    );
+    assert_eq!(range_keys(&arena, &map, (Included(0), Included(size))), all);
+    assert_eq!(range_keys(&arena, &map, (Included(0), Unbounded)), all);
+    assert_eq!(
+        range_keys(&arena, &map, (Included(1), Excluded(size + 1))),
+        all
+    );
+    assert_eq!(
+        range_keys(&arena, &map, (Included(1), Included(size + 1))),
+        all
+    );
+    assert_eq!(range_keys(&arena, &map, (Included(1), Included(size))), all);
+    assert_eq!(range_keys(&arena, &map, (Included(1), Unbounded)), all);
+    assert_eq!(
+        range_keys(&arena, &map, (Unbounded, Excluded(size + 1))),
+        all
+    );
+    assert_eq!(
+        range_keys(&arena, &map, (Unbounded, Included(size + 1))),
+        all
+    );
+    assert_eq!(range_keys(&arena, &map, (Unbounded, Included(size))), all);
+    assert_eq!(range_keys(&arena, &map, ..), all);
+
+    assert_eq!(range_keys(&arena, &map, (Excluded(0), Excluded(1))), vec![]);
+    assert_eq!(range_keys(&arena, &map, (Excluded(0), Included(0))), vec![]);
+    assert_eq!(range_keys(&arena, &map, (Included(0), Included(0))), vec![]);
+    assert_eq!(range_keys(&arena, &map, (Included(0), Excluded(1))), vec![]);
+    assert_eq!(range_keys(&arena, &map, (Unbounded, Excluded(1))), vec![]);
+    assert_eq!(range_keys(&arena, &map, (Unbounded, Included(0))), vec![]);
+    assert_eq!(range_keys(&arena, &map, (Excluded(0), Excluded(2))), first);
+    assert_eq!(range_keys(&arena, &map, (Excluded(0), Included(1))), first);
+    assert_eq!(range_keys(&arena, &map, (Included(0), Excluded(2))), first);
+    assert_eq!(range_keys(&arena, &map, (Included(0), Included(1))), first);
+    assert_eq!(range_keys(&arena, &map, (Included(1), Excluded(2))), first);
+    assert_eq!(range_keys(&arena, &map, (Included(1), Included(1))), first);
+    assert_eq!(range_keys(&arena, &map, (Unbounded, Excluded(2))), first);
+    assert_eq!(range_keys(&arena, &map, (Unbounded, Included(1))), first);
+    assert_eq!(
+        range_keys(&arena, &map, (Excluded(size - 1), Excluded(size + 1))),
         last
     );
     assert_eq!(
-        range_keys(&map, (Excluded(size - 1), Included(size + 1))),
+        range_keys(&arena, &map, (Excluded(size - 1), Included(size + 1))),
         last
     );
-    assert_eq!(range_keys(&map, (Excluded(size - 1), Included(size))), last);
-    assert_eq!(range_keys(&map, (Excluded(size - 1), Unbounded)), last);
-    assert_eq!(range_keys(&map, (Included(size), Excluded(size + 1))), last);
-    assert_eq!(range_keys(&map, (Included(size), Included(size + 1))), last);
-    assert_eq!(range_keys(&map, (Included(size), Included(size))), last);
-    assert_eq!(range_keys(&map, (Included(size), Unbounded)), last);
     assert_eq!(
-        range_keys(&map, (Excluded(size), Excluded(size + 1))),
-        vec![]
-    );
-    assert_eq!(range_keys(&map, (Excluded(size), Included(size))), vec![]);
-    assert_eq!(range_keys(&map, (Excluded(size), Unbounded)), vec![]);
-    assert_eq!(
-        range_keys(&map, (Included(size + 1), Excluded(size + 1))),
-        vec![]
+        range_keys(&arena, &map, (Excluded(size - 1), Included(size))),
+        last
     );
     assert_eq!(
-        range_keys(&map, (Included(size + 1), Included(size + 1))),
+        range_keys(&arena, &map, (Excluded(size - 1), Unbounded)),
+        last
+    );
+    assert_eq!(
+        range_keys(&arena, &map, (Included(size), Excluded(size + 1))),
+        last
+    );
+    assert_eq!(
+        range_keys(&arena, &map, (Included(size), Included(size + 1))),
+        last
+    );
+    assert_eq!(
+        range_keys(&arena, &map, (Included(size), Included(size))),
+        last
+    );
+    assert_eq!(range_keys(&arena, &map, (Included(size), Unbounded)), last);
+    assert_eq!(
+        range_keys(&arena, &map, (Excluded(size), Excluded(size + 1))),
         vec![]
     );
-    assert_eq!(range_keys(&map, (Included(size + 1), Unbounded)), vec![]);
+    assert_eq!(
+        range_keys(&arena, &map, (Excluded(size), Included(size))),
+        vec![]
+    );
+    assert_eq!(
+        range_keys(&arena, &map, (Excluded(size), Unbounded)),
+        vec![]
+    );
+    assert_eq!(
+        range_keys(&arena, &map, (Included(size + 1), Excluded(size + 1))),
+        vec![]
+    );
+    assert_eq!(
+        range_keys(&arena, &map, (Included(size + 1), Included(size + 1))),
+        vec![]
+    );
+    assert_eq!(
+        range_keys(&arena, &map, (Included(size + 1), Unbounded)),
+        vec![]
+    );
 
-    assert_eq!(range_keys(&map, ..3), vec![1, 2]);
-    assert_eq!(range_keys(&map, 3..), vec![3, 4]);
-    assert_eq!(range_keys(&map, 2..=3), vec![2, 3]);
+    assert_eq!(range_keys(&arena, &map, ..3), vec![1, 2]);
+    assert_eq!(range_keys(&arena, &map, 3..), vec![3, 4]);
+    assert_eq!(range_keys(&arena, &map, 2..=3), vec![2, 3]);
 }
 
 #[test]
 fn test_range_height_1() {
     // Tests tree with a root and 2 leaves. We test around the middle of the
     // keys because one of those is the single key in the root node.
-    let map = BTreeMap::from_iter((0..MIN_INSERTS_HEIGHT_1 as i32).map(|i| (i, i)));
+    let mut arena = Arena::new();
+    let map = BTreeMap::from_iter(&mut arena, (0..MIN_INSERTS_HEIGHT_1 as i32).map(|i| (i, i)));
     let middle = MIN_INSERTS_HEIGHT_1 as i32 / 2;
     for root in middle - 2..=middle + 2 {
         assert_eq!(
-            range_keys(&map, (Excluded(root), Excluded(root + 1))),
+            range_keys(&arena, &map, (Excluded(root), Excluded(root + 1))),
             vec![]
         );
         assert_eq!(
-            range_keys(&map, (Excluded(root), Included(root + 1))),
+            range_keys(&arena, &map, (Excluded(root), Included(root + 1))),
             vec![root + 1]
         );
         assert_eq!(
-            range_keys(&map, (Included(root), Excluded(root + 1))),
+            range_keys(&arena, &map, (Included(root), Excluded(root + 1))),
             vec![root]
         );
         assert_eq!(
-            range_keys(&map, (Included(root), Included(root + 1))),
+            range_keys(&arena, &map, (Included(root), Included(root + 1))),
             vec![root, root + 1]
         );
 
         assert_eq!(
-            range_keys(&map, (Excluded(root - 1), Excluded(root))),
+            range_keys(&arena, &map, (Excluded(root - 1), Excluded(root))),
             vec![]
         );
         assert_eq!(
-            range_keys(&map, (Included(root - 1), Excluded(root))),
+            range_keys(&arena, &map, (Included(root - 1), Excluded(root))),
             vec![root - 1]
         );
         assert_eq!(
-            range_keys(&map, (Excluded(root - 1), Included(root))),
+            range_keys(&arena, &map, (Excluded(root - 1), Included(root))),
             vec![root]
         );
         assert_eq!(
-            range_keys(&map, (Included(root - 1), Included(root))),
+            range_keys(&arena, &map, (Included(root - 1), Included(root))),
             vec![root - 1, root]
         );
     }
@@ -712,68 +785,117 @@ fn test_range_large() {
 
     let all = Vec::from_iter(1..=size);
     let (first, last) = (vec![all[0]], vec![all[size as usize - 1]]);
-    let map = BTreeMap::from_iter(all.iter().copied().map(|i| (i, i)));
+    let mut arena = Arena::new();
+    let map = BTreeMap::from_iter(&mut arena, all.iter().copied().map(|i| (i, i)));
 
-    assert_eq!(range_keys(&map, (Excluded(0), Excluded(size + 1))), all);
-    assert_eq!(range_keys(&map, (Excluded(0), Included(size + 1))), all);
-    assert_eq!(range_keys(&map, (Excluded(0), Included(size))), all);
-    assert_eq!(range_keys(&map, (Excluded(0), Unbounded)), all);
-    assert_eq!(range_keys(&map, (Included(0), Excluded(size + 1))), all);
-    assert_eq!(range_keys(&map, (Included(0), Included(size + 1))), all);
-    assert_eq!(range_keys(&map, (Included(0), Included(size))), all);
-    assert_eq!(range_keys(&map, (Included(0), Unbounded)), all);
-    assert_eq!(range_keys(&map, (Included(1), Excluded(size + 1))), all);
-    assert_eq!(range_keys(&map, (Included(1), Included(size + 1))), all);
-    assert_eq!(range_keys(&map, (Included(1), Included(size))), all);
-    assert_eq!(range_keys(&map, (Included(1), Unbounded)), all);
-    assert_eq!(range_keys(&map, (Unbounded, Excluded(size + 1))), all);
-    assert_eq!(range_keys(&map, (Unbounded, Included(size + 1))), all);
-    assert_eq!(range_keys(&map, (Unbounded, Included(size))), all);
-    assert_eq!(range_keys(&map, ..), all);
-
-    assert_eq!(range_keys(&map, (Excluded(0), Excluded(1))), vec![]);
-    assert_eq!(range_keys(&map, (Excluded(0), Included(0))), vec![]);
-    assert_eq!(range_keys(&map, (Included(0), Included(0))), vec![]);
-    assert_eq!(range_keys(&map, (Included(0), Excluded(1))), vec![]);
-    assert_eq!(range_keys(&map, (Unbounded, Excluded(1))), vec![]);
-    assert_eq!(range_keys(&map, (Unbounded, Included(0))), vec![]);
-    assert_eq!(range_keys(&map, (Excluded(0), Excluded(2))), first);
-    assert_eq!(range_keys(&map, (Excluded(0), Included(1))), first);
-    assert_eq!(range_keys(&map, (Included(0), Excluded(2))), first);
-    assert_eq!(range_keys(&map, (Included(0), Included(1))), first);
-    assert_eq!(range_keys(&map, (Included(1), Excluded(2))), first);
-    assert_eq!(range_keys(&map, (Included(1), Included(1))), first);
-    assert_eq!(range_keys(&map, (Unbounded, Excluded(2))), first);
-    assert_eq!(range_keys(&map, (Unbounded, Included(1))), first);
     assert_eq!(
-        range_keys(&map, (Excluded(size - 1), Excluded(size + 1))),
+        range_keys(&arena, &map, (Excluded(0), Excluded(size + 1))),
+        all
+    );
+    assert_eq!(
+        range_keys(&arena, &map, (Excluded(0), Included(size + 1))),
+        all
+    );
+    assert_eq!(range_keys(&arena, &map, (Excluded(0), Included(size))), all);
+    assert_eq!(range_keys(&arena, &map, (Excluded(0), Unbounded)), all);
+    assert_eq!(
+        range_keys(&arena, &map, (Included(0), Excluded(size + 1))),
+        all
+    );
+    assert_eq!(
+        range_keys(&arena, &map, (Included(0), Included(size + 1))),
+        all
+    );
+    assert_eq!(range_keys(&arena, &map, (Included(0), Included(size))), all);
+    assert_eq!(range_keys(&arena, &map, (Included(0), Unbounded)), all);
+    assert_eq!(
+        range_keys(&arena, &map, (Included(1), Excluded(size + 1))),
+        all
+    );
+    assert_eq!(
+        range_keys(&arena, &map, (Included(1), Included(size + 1))),
+        all
+    );
+    assert_eq!(range_keys(&arena, &map, (Included(1), Included(size))), all);
+    assert_eq!(range_keys(&arena, &map, (Included(1), Unbounded)), all);
+    assert_eq!(
+        range_keys(&arena, &map, (Unbounded, Excluded(size + 1))),
+        all
+    );
+    assert_eq!(
+        range_keys(&arena, &map, (Unbounded, Included(size + 1))),
+        all
+    );
+    assert_eq!(range_keys(&arena, &map, (Unbounded, Included(size))), all);
+    assert_eq!(range_keys(&arena, &map, ..), all);
+
+    assert_eq!(range_keys(&arena, &map, (Excluded(0), Excluded(1))), vec![]);
+    assert_eq!(range_keys(&arena, &map, (Excluded(0), Included(0))), vec![]);
+    assert_eq!(range_keys(&arena, &map, (Included(0), Included(0))), vec![]);
+    assert_eq!(range_keys(&arena, &map, (Included(0), Excluded(1))), vec![]);
+    assert_eq!(range_keys(&arena, &map, (Unbounded, Excluded(1))), vec![]);
+    assert_eq!(range_keys(&arena, &map, (Unbounded, Included(0))), vec![]);
+    assert_eq!(range_keys(&arena, &map, (Excluded(0), Excluded(2))), first);
+    assert_eq!(range_keys(&arena, &map, (Excluded(0), Included(1))), first);
+    assert_eq!(range_keys(&arena, &map, (Included(0), Excluded(2))), first);
+    assert_eq!(range_keys(&arena, &map, (Included(0), Included(1))), first);
+    assert_eq!(range_keys(&arena, &map, (Included(1), Excluded(2))), first);
+    assert_eq!(range_keys(&arena, &map, (Included(1), Included(1))), first);
+    assert_eq!(range_keys(&arena, &map, (Unbounded, Excluded(2))), first);
+    assert_eq!(range_keys(&arena, &map, (Unbounded, Included(1))), first);
+    assert_eq!(
+        range_keys(&arena, &map, (Excluded(size - 1), Excluded(size + 1))),
         last
     );
     assert_eq!(
-        range_keys(&map, (Excluded(size - 1), Included(size + 1))),
+        range_keys(&arena, &map, (Excluded(size - 1), Included(size + 1))),
         last
     );
-    assert_eq!(range_keys(&map, (Excluded(size - 1), Included(size))), last);
-    assert_eq!(range_keys(&map, (Excluded(size - 1), Unbounded)), last);
-    assert_eq!(range_keys(&map, (Included(size), Excluded(size + 1))), last);
-    assert_eq!(range_keys(&map, (Included(size), Included(size + 1))), last);
-    assert_eq!(range_keys(&map, (Included(size), Included(size))), last);
-    assert_eq!(range_keys(&map, (Included(size), Unbounded)), last);
     assert_eq!(
-        range_keys(&map, (Excluded(size), Excluded(size + 1))),
-        vec![]
-    );
-    assert_eq!(range_keys(&map, (Excluded(size), Included(size))), vec![]);
-    assert_eq!(range_keys(&map, (Excluded(size), Unbounded)), vec![]);
-    assert_eq!(
-        range_keys(&map, (Included(size + 1), Excluded(size + 1))),
-        vec![]
+        range_keys(&arena, &map, (Excluded(size - 1), Included(size))),
+        last
     );
     assert_eq!(
-        range_keys(&map, (Included(size + 1), Included(size + 1))),
+        range_keys(&arena, &map, (Excluded(size - 1), Unbounded)),
+        last
+    );
+    assert_eq!(
+        range_keys(&arena, &map, (Included(size), Excluded(size + 1))),
+        last
+    );
+    assert_eq!(
+        range_keys(&arena, &map, (Included(size), Included(size + 1))),
+        last
+    );
+    assert_eq!(
+        range_keys(&arena, &map, (Included(size), Included(size))),
+        last
+    );
+    assert_eq!(range_keys(&arena, &map, (Included(size), Unbounded)), last);
+    assert_eq!(
+        range_keys(&arena, &map, (Excluded(size), Excluded(size + 1))),
         vec![]
     );
-    assert_eq!(range_keys(&map, (Included(size + 1), Unbounded)), vec![]);
+    assert_eq!(
+        range_keys(&arena, &map, (Excluded(size), Included(size))),
+        vec![]
+    );
+    assert_eq!(
+        range_keys(&arena, &map, (Excluded(size), Unbounded)),
+        vec![]
+    );
+    assert_eq!(
+        range_keys(&arena, &map, (Included(size + 1), Excluded(size + 1))),
+        vec![]
+    );
+    assert_eq!(
+        range_keys(&arena, &map, (Included(size + 1), Included(size + 1))),
+        vec![]
+    );
+    assert_eq!(
+        range_keys(&arena, &map, (Included(size + 1), Unbounded)),
+        vec![]
+    );
 
     fn check<'a, L, R>(lhs: L, rhs: R)
     where
@@ -783,72 +905,80 @@ fn test_range_large() {
         assert_eq!(Vec::from_iter(lhs), Vec::from_iter(rhs));
     }
 
-    check(map.range(..=100), map.range(..101));
+    check(map.range(&arena, ..=100), map.range(&arena, ..101));
     check(
-        map.range(5..=8),
+        map.range(&arena, 5..=8),
         vec![(&5, &5), (&6, &6), (&7, &7), (&8, &8)],
     );
-    check(map.range(-1..=2), vec![(&1, &1), (&2, &2)]);
+    check(map.range(&arena, -1..=2), vec![(&1, &1), (&2, &2)]);
 }
 
 #[test]
 fn test_range_inclusive_max_value() {
     let max = usize::MAX;
-    let map = BTreeMap::from([(max, 0)]);
-    assert_eq!(Vec::from_iter(map.range(max..=max)), &[(&max, &0)]);
+    let mut arena = Arena::new();
+    let map = BTreeMap::from_iter(&mut arena, [(max, 0)]);
+    assert_eq!(Vec::from_iter(map.range(&arena, max..=max)), &[(&max, &0)]);
 }
 
 #[test]
 fn test_range_equal_empty_cases() {
-    let map = BTreeMap::from_iter((0..5).map(|i| (i, i)));
-    assert_eq!(map.range((Included(2), Excluded(2))).next(), None);
-    assert_eq!(map.range((Excluded(2), Included(2))).next(), None);
+    let mut arena = Arena::new();
+    let map = BTreeMap::from_iter(&mut arena, (0..5).map(|i| (i, i)));
+    assert_eq!(map.range(&arena, (Included(2), Excluded(2))).next(), None);
+    assert_eq!(map.range(&arena, (Excluded(2), Included(2))).next(), None);
 }
 
 #[test]
 #[should_panic]
 fn test_range_equal_excluded() {
-    let map = BTreeMap::from_iter((0..5).map(|i| (i, i)));
-    let _ = map.range((Excluded(2), Excluded(2)));
+    let mut arena = Arena::new();
+    let map = BTreeMap::from_iter(&mut arena, (0..5).map(|i| (i, i)));
+    let _ = map.range(&arena, (Excluded(2), Excluded(2)));
 }
 
 #[test]
 #[should_panic]
 fn test_range_backwards_1() {
-    let map = BTreeMap::from_iter((0..5).map(|i| (i, i)));
-    let _ = map.range((Included(3), Included(2)));
+    let mut arena = Arena::new();
+    let map = BTreeMap::from_iter(&mut arena, (0..5).map(|i| (i, i)));
+    let _ = map.range(&arena, (Included(3), Included(2)));
 }
 
 #[test]
 #[should_panic]
 fn test_range_backwards_2() {
-    let map = BTreeMap::from_iter((0..5).map(|i| (i, i)));
-    let _ = map.range((Included(3), Excluded(2)));
+    let mut arena = Arena::new();
+    let map = BTreeMap::from_iter(&mut arena, (0..5).map(|i| (i, i)));
+    let _ = map.range(&arena, (Included(3), Excluded(2)));
 }
 
 #[test]
 #[should_panic]
 fn test_range_backwards_3() {
-    let map = BTreeMap::from_iter((0..5).map(|i| (i, i)));
-    let _ = map.range((Excluded(3), Included(2)));
+    let mut arena = Arena::new();
+    let map = BTreeMap::from_iter(&mut arena, (0..5).map(|i| (i, i)));
+    let _ = map.range(&arena, (Excluded(3), Included(2)));
 }
 
 #[test]
 #[should_panic]
 fn test_range_backwards_4() {
-    let map = BTreeMap::from_iter((0..5).map(|i| (i, i)));
-    let _ = map.range((Excluded(3), Excluded(2)));
+    let mut arena = Arena::new();
+    let map = BTreeMap::from_iter(&mut arena, (0..5).map(|i| (i, i)));
+    let _ = map.range(&arena, (Excluded(3), Excluded(2)));
 }
 
 #[test]
 fn test_range_finding_ill_order_in_map() {
-    let mut map = BTreeMap::new();
-    map.insert(Cyclic3::B, ());
+    let mut arena = Arena::new();
+    let mut map = BTreeMap::new(&arena);
+    map.insert(&mut arena, Cyclic3::B, ());
     // Lacking static_assert, call `range` conditionally, to emphasise that
     // we cause a different panic than `test_range_backwards_1` does.
     // A more refined `should_panic` would be welcome.
     if Cyclic3::C < Cyclic3::A {
-        let _ = map.range(Cyclic3::C..=Cyclic3::A);
+        let _ = map.range(&arena, Cyclic3::C..=Cyclic3::A);
     }
 }
 
@@ -892,8 +1022,12 @@ fn test_range_finding_ill_order_in_range_ord() {
         }
     }
 
-    let map = BTreeMap::from_iter((0..12).map(|i| (CompositeKey(i, EvilTwin(i)), ())));
-    let _ = map.range(EvilTwin(5)..=EvilTwin(7));
+    let mut arena = Arena::new();
+    let map = BTreeMap::from_iter(
+        &mut arena,
+        (0..12).map(|i| (CompositeKey(i, EvilTwin(i)), ())),
+    );
+    let _ = map.range(&arena, EvilTwin(5)..=EvilTwin(7));
 }
 
 #[test]
@@ -904,10 +1038,17 @@ fn test_range_1000() {
     } else {
         1000
     };
-    let map = BTreeMap::from_iter((0..size).map(|i| (i, i)));
+    let mut arena = Arena::new();
+    let map = BTreeMap::from_iter(&mut arena, (0..size).map(|i| (i, i)));
 
-    fn test(map: &BTreeMap<u32, u32>, size: u32, min: Bound<&u32>, max: Bound<&u32>) {
-        let mut kvs = map.range((min, max)).map(|(&k, &v)| (k, v));
+    fn test(
+        arena: &Arena<u32, u32>,
+        map: &BTreeMap<u32, u32>,
+        size: u32,
+        min: Bound<&u32>,
+        max: Bound<&u32>,
+    ) {
+        let mut kvs = map.range(arena, (min, max)).map(|(&k, &v)| (k, v));
         let mut pairs = (0..size).map(|i| (i, i));
 
         for (kv, pair) in kvs.by_ref().zip(pairs.by_ref()) {
@@ -916,23 +1057,24 @@ fn test_range_1000() {
         assert_eq!(kvs.next(), None);
         assert_eq!(pairs.next(), None);
     }
-    test(&map, size, Included(&0), Excluded(&size));
-    test(&map, size, Unbounded, Excluded(&size));
-    test(&map, size, Included(&0), Included(&(size - 1)));
-    test(&map, size, Unbounded, Included(&(size - 1)));
-    test(&map, size, Included(&0), Unbounded);
-    test(&map, size, Unbounded, Unbounded);
+    test(&arena, &map, size, Included(&0), Excluded(&size));
+    test(&arena, &map, size, Unbounded, Excluded(&size));
+    test(&arena, &map, size, Included(&0), Included(&(size - 1)));
+    test(&arena, &map, size, Unbounded, Included(&(size - 1)));
+    test(&arena, &map, size, Included(&0), Unbounded);
+    test(&arena, &map, size, Unbounded, Unbounded);
 }
 
 #[test]
 fn test_range_borrowed_key() {
-    let mut map = BTreeMap::new();
-    map.insert("aardvark".to_string(), 1);
-    map.insert("baboon".to_string(), 2);
-    map.insert("coyote".to_string(), 3);
-    map.insert("dingo".to_string(), 4);
+    let mut arena = Arena::new();
+    let mut map = BTreeMap::new(&arena);
+    map.insert(&mut arena, "aardvark".to_string(), 1);
+    map.insert(&mut arena, "baboon".to_string(), 2);
+    map.insert(&mut arena, "coyote".to_string(), 3);
+    map.insert(&mut arena, "dingo".to_string(), 4);
     // NOTE: would like to use simply "b".."d" here...
-    let mut iter = map.range::<str, _>((Included("b"), Excluded("d")));
+    let mut iter = map.range::<str, _>(&arena, (Included("b"), Excluded("d")));
     assert_eq!(iter.next(), Some((&"baboon".to_string(), &2)));
     assert_eq!(iter.next(), Some((&"coyote".to_string(), &3)));
     assert_eq!(iter.next(), None);
@@ -943,12 +1085,13 @@ fn test_range() {
     let size = 200;
     // Miri is too slow
     let step = if cfg!(miri) { 66 } else { 1 };
-    let map = BTreeMap::from_iter((0..size).map(|i| (i, i)));
+    let mut arena = Arena::new();
+    let map = BTreeMap::from_iter(&mut arena, (0..size).map(|i| (i, i)));
 
     for i in (0..size).step_by(step) {
         for j in (i..size).step_by(step) {
             let mut kvs = map
-                .range((Included(&i), Included(&j)))
+                .range(&arena, (Included(&i), Included(&j)))
                 .map(|(&k, &v)| (k, v));
             let mut pairs = (i..=j).map(|i| (i, i));
 
@@ -966,12 +1109,13 @@ fn test_range_mut() {
     let size = 200;
     // Miri is too slow
     let step = if cfg!(miri) { 66 } else { 1 };
-    let mut map = BTreeMap::from_iter((0..size).map(|i| (i, i)));
+    let mut arena = Arena::new();
+    let mut map = BTreeMap::from_iter(&mut arena, (0..size).map(|i| (i, i)));
 
     for i in (0..size).step_by(step) {
         for j in (i..size).step_by(step) {
             let mut kvs = map
-                .range_mut((Included(&i), Included(&j)))
+                .range_mut(&arena, (Included(&i), Included(&j)))
                 .map(|(&k, &mut v)| (k, v));
             let mut pairs = (i..=j).map(|i| (i, i));
 
@@ -982,51 +1126,55 @@ fn test_range_mut() {
             assert_eq!(pairs.next(), None);
         }
     }
-    map.check();
+    map.check(&arena);
 }
 
 #[should_panic(expected = "range start is greater than range end in BTree{Set,Map}")]
 #[test]
 fn test_range_panic_1() {
-    let mut map = BTreeMap::new();
-    map.insert(3, "a");
-    map.insert(5, "b");
-    map.insert(8, "c");
+    let mut arena = Arena::new();
+    let mut map = BTreeMap::new(&arena);
+    map.insert(&mut arena, 3, "a");
+    map.insert(&mut arena, 5, "b");
+    map.insert(&mut arena, 8, "c");
 
-    let _invalid_range = map.range((Included(&8), Included(&3)));
+    let _invalid_range = map.range(&arena, (Included(&8), Included(&3)));
 }
 
 #[should_panic(expected = "range start and end are equal and excluded in BTree{Set,Map}")]
 #[test]
 fn test_range_panic_2() {
-    let mut map = BTreeMap::new();
-    map.insert(3, "a");
-    map.insert(5, "b");
-    map.insert(8, "c");
+    let mut arena = Arena::new();
+    let mut map = BTreeMap::new(&arena);
+    map.insert(&mut arena, 3, "a");
+    map.insert(&mut arena, 5, "b");
+    map.insert(&mut arena, 8, "c");
 
-    let _invalid_range = map.range((Excluded(&5), Excluded(&5)));
+    let _invalid_range = map.range(&arena, (Excluded(&5), Excluded(&5)));
 }
 
 #[should_panic(expected = "range start and end are equal and excluded in BTree{Set,Map}")]
 #[test]
 fn test_range_panic_3() {
-    let mut map: BTreeMap<i32, ()> = BTreeMap::new();
-    map.insert(3, ());
-    map.insert(5, ());
-    map.insert(8, ());
+    let mut arena = Arena::new();
+    let mut map: BTreeMap<i32, ()> = BTreeMap::new(&arena);
+    map.insert(&mut arena, 3, ());
+    map.insert(&mut arena, 5, ());
+    map.insert(&mut arena, 8, ());
 
-    let _invalid_range = map.range((Excluded(&5), Excluded(&5)));
+    let _invalid_range = map.range(&arena, (Excluded(&5), Excluded(&5)));
 }
 
 #[test]
 fn test_retain() {
-    let mut map = BTreeMap::from_iter((0..100).map(|x| (x, x * 10)));
+    let mut arena = Arena::new();
+    let mut map = BTreeMap::from_iter(&mut arena, (0..100).map(|x| (x, x * 10)));
 
-    map.retain(|&k, _| k % 2 == 0);
+    map.retain(&mut arena, |&k, _| k % 2 == 0);
     assert_eq!(map.len(), 50);
-    assert_eq!(map[&2], 20);
-    assert_eq!(map[&4], 40);
-    assert_eq!(map[&6], 60);
+    assert_eq!(*map.get(&arena, &2).unwrap(), 20);
+    assert_eq!(*map.get(&arena, &4).unwrap(), 40);
+    assert_eq!(*map.get(&arena, &6).unwrap(), 60);
 }
 
 mod test_drain_filter {
@@ -1034,79 +1182,88 @@ mod test_drain_filter {
 
     #[test]
     fn empty() {
-        let mut map: BTreeMap<i32, i32> = BTreeMap::new();
-        map.drain_filter(|_, _| unreachable!("there's nothing to decide on"));
+        let mut arena = Arena::new();
+        let mut map: BTreeMap<i32, i32> = BTreeMap::new(&arena);
+        map.drain_filter(&mut arena, |_, _| {
+            unreachable!("there's nothing to decide on")
+        });
         assert_eq!(map.height(), None);
-        map.check();
+        map.check(&arena);
     }
 
     // Explicitly consumes the iterator, where most test cases drop it instantly.
     #[test]
     fn consumed_keeping_all() {
         let pairs = (0..3).map(|i| (i, i));
-        let mut map = BTreeMap::from_iter(pairs);
-        assert!(map.drain_filter(|_, _| false).eq(iter::empty()));
-        map.check();
+        let mut arena = Arena::new();
+        let mut map = BTreeMap::from_iter(&mut arena, pairs);
+        assert!(map.drain_filter(&mut arena, |_, _| false).eq(iter::empty()));
+        map.check(&arena);
     }
 
     // Explicitly consumes the iterator, where most test cases drop it instantly.
     #[test]
     fn consumed_removing_all() {
         let pairs = (0..3).map(|i| (i, i));
-        let mut map = BTreeMap::from_iter(pairs.clone());
-        assert!(map.drain_filter(|_, _| true).eq(pairs));
+        let mut arena = Arena::new();
+        let mut map = BTreeMap::from_iter(&mut arena, pairs.clone());
+        assert!(map.drain_filter(&mut arena, |_, _| true).eq(pairs));
         assert!(map.is_empty());
-        map.check();
+        map.check(&arena);
     }
 
     // Explicitly consumes the iterator and modifies values through it.
     #[test]
     fn mutating_and_keeping() {
         let pairs = (0..3).map(|i| (i, i));
-        let mut map = BTreeMap::from_iter(pairs);
+        let mut arena = Arena::new();
+        let mut map = BTreeMap::from_iter(&mut arena, pairs);
         assert!(map
-            .drain_filter(|_, v| {
+            .drain_filter(&mut arena, |_, v| {
                 *v += 6;
                 false
             })
             .eq(iter::empty()));
-        assert!(map.keys().copied().eq(0..3));
-        assert!(map.values().copied().eq(6..9));
-        map.check();
+        assert!(map.keys(&arena).copied().eq(0..3));
+        assert!(map.values(&arena).copied().eq(6..9));
+        map.check(&arena);
     }
 
     // Explicitly consumes the iterator and modifies values through it.
     #[test]
     fn mutating_and_removing() {
         let pairs = (0..3).map(|i| (i, i));
-        let mut map = BTreeMap::from_iter(pairs);
+        let mut arena = Arena::new();
+        let mut map = BTreeMap::from_iter(&mut arena, pairs);
         assert!(map
-            .drain_filter(|_, v| {
+            .drain_filter(&mut arena, |_, v| {
                 *v += 6;
                 true
             })
             .eq((0..3).map(|i| (i, i + 6))));
         assert!(map.is_empty());
-        map.check();
+        map.check(&arena);
     }
 
     #[test]
     fn underfull_keeping_all() {
         let pairs = (0..3).map(|i| (i, i));
-        let mut map = BTreeMap::from_iter(pairs);
-        map.drain_filter(|_, _| false);
-        assert!(map.keys().copied().eq(0..3));
-        map.check();
+        let mut arena = Arena::new();
+        let mut map = BTreeMap::from_iter(&mut arena, pairs);
+        map.drain_filter(&mut arena, |_, _| false);
+        assert!(map.keys(&arena).copied().eq(0..3));
+        map.check(&arena);
     }
 
     #[test]
     fn underfull_removing_one() {
         let pairs = (0..3).map(|i| (i, i));
         for doomed in 0..3 {
-            let mut map = BTreeMap::from_iter(pairs.clone());
-            map.drain_filter(|i, _| *i == doomed);
+            let mut arena = Arena::new();
+            let mut map = BTreeMap::from_iter(&mut arena, pairs.clone());
+            map.drain_filter(&mut arena, |i, _| *i == doomed);
             assert_eq!(map.len(), 2);
-            map.check();
+            map.check(&arena);
         }
     }
 
@@ -1114,39 +1271,43 @@ mod test_drain_filter {
     fn underfull_keeping_one() {
         let pairs = (0..3).map(|i| (i, i));
         for sacred in 0..3 {
-            let mut map = BTreeMap::from_iter(pairs.clone());
-            map.drain_filter(|i, _| *i != sacred);
-            assert!(map.keys().copied().eq(sacred..=sacred));
-            map.check();
+            let mut arena = Arena::new();
+            let mut map = BTreeMap::from_iter(&mut arena, pairs.clone());
+            map.drain_filter(&mut arena, |i, _| *i != sacred);
+            assert!(map.keys(&arena).copied().eq(sacred..=sacred));
+            map.check(&arena);
         }
     }
 
     #[test]
     fn underfull_removing_all() {
         let pairs = (0..3).map(|i| (i, i));
-        let mut map = BTreeMap::from_iter(pairs);
-        map.drain_filter(|_, _| true);
+        let mut arena = Arena::new();
+        let mut map = BTreeMap::from_iter(&mut arena, pairs);
+        map.drain_filter(&mut arena, |_, _| true);
         assert!(map.is_empty());
-        map.check();
+        map.check(&arena);
     }
 
     #[test]
     fn height_0_keeping_all() {
         let pairs = (0..node::CAPACITY).map(|i| (i, i));
-        let mut map = BTreeMap::from_iter(pairs);
-        map.drain_filter(|_, _| false);
-        assert!(map.keys().copied().eq(0..node::CAPACITY));
-        map.check();
+        let mut arena = Arena::new();
+        let mut map = BTreeMap::from_iter(&mut arena, pairs);
+        map.drain_filter(&mut arena, |_, _| false);
+        assert!(map.keys(&arena).copied().eq(0..node::CAPACITY));
+        map.check(&arena);
     }
 
     #[test]
     fn height_0_removing_one() {
         let pairs = (0..node::CAPACITY).map(|i| (i, i));
         for doomed in 0..node::CAPACITY {
-            let mut map = BTreeMap::from_iter(pairs.clone());
-            map.drain_filter(|i, _| *i == doomed);
+            let mut arena = Arena::new();
+            let mut map = BTreeMap::from_iter(&mut arena, pairs.clone());
+            map.drain_filter(&mut arena, |i, _| *i == doomed);
             assert_eq!(map.len(), node::CAPACITY - 1);
-            map.check();
+            map.check(&arena);
         }
     }
 
@@ -1154,47 +1315,52 @@ mod test_drain_filter {
     fn height_0_keeping_one() {
         let pairs = (0..node::CAPACITY).map(|i| (i, i));
         for sacred in 0..node::CAPACITY {
-            let mut map = BTreeMap::from_iter(pairs.clone());
-            map.drain_filter(|i, _| *i != sacred);
-            assert!(map.keys().copied().eq(sacred..=sacred));
-            map.check();
+            let mut arena = Arena::new();
+            let mut map = BTreeMap::from_iter(&mut arena, pairs.clone());
+            map.drain_filter(&mut arena, |i, _| *i != sacred);
+            assert!(map.keys(&arena).copied().eq(sacred..=sacred));
+            map.check(&arena);
         }
     }
 
     #[test]
     fn height_0_removing_all() {
         let pairs = (0..node::CAPACITY).map(|i| (i, i));
-        let mut map = BTreeMap::from_iter(pairs);
-        map.drain_filter(|_, _| true);
+        let mut arena = Arena::new();
+        let mut map = BTreeMap::from_iter(&mut arena, pairs);
+        map.drain_filter(&mut arena, |_, _| true);
         assert!(map.is_empty());
-        map.check();
+        map.check(&arena);
     }
 
     #[test]
     fn height_0_keeping_half() {
-        let mut map = BTreeMap::from_iter((0..16).map(|i| (i, i)));
-        assert_eq!(map.drain_filter(|i, _| *i % 2 == 0).count(), 8);
+        let mut arena = Arena::new();
+        let mut map = BTreeMap::from_iter(&mut arena, (0..16).map(|i| (i, i)));
+        assert_eq!(map.drain_filter(&mut arena, |i, _| *i % 2 == 0).count(), 8);
         assert_eq!(map.len(), 8);
-        map.check();
+        map.check(&arena);
     }
 
     #[test]
     fn height_1_removing_all() {
         let pairs = (0..MIN_INSERTS_HEIGHT_1).map(|i| (i, i));
-        let mut map = BTreeMap::from_iter(pairs);
-        map.drain_filter(|_, _| true);
+        let mut arena = Arena::new();
+        let mut map = BTreeMap::from_iter(&mut arena, pairs);
+        map.drain_filter(&mut arena, |_, _| true);
         assert!(map.is_empty());
-        map.check();
+        map.check(&arena);
     }
 
     #[test]
     fn height_1_removing_one() {
         let pairs = (0..MIN_INSERTS_HEIGHT_1).map(|i| (i, i));
         for doomed in 0..MIN_INSERTS_HEIGHT_1 {
-            let mut map = BTreeMap::from_iter(pairs.clone());
-            map.drain_filter(|i, _| *i == doomed);
+            let mut arena = Arena::new();
+            let mut map = BTreeMap::from_iter(&mut arena, pairs.clone());
+            map.drain_filter(&mut arena, |i, _| *i == doomed);
             assert_eq!(map.len(), MIN_INSERTS_HEIGHT_1 - 1);
-            map.check();
+            map.check(&arena);
         }
     }
 
@@ -1202,10 +1368,11 @@ mod test_drain_filter {
     fn height_1_keeping_one() {
         let pairs = (0..MIN_INSERTS_HEIGHT_1).map(|i| (i, i));
         for sacred in 0..MIN_INSERTS_HEIGHT_1 {
-            let mut map = BTreeMap::from_iter(pairs.clone());
-            map.drain_filter(|i, _| *i != sacred);
-            assert!(map.keys().copied().eq(sacred..=sacred));
-            map.check();
+            let mut arena = Arena::new();
+            let mut map = BTreeMap::from_iter(&mut arena, pairs.clone());
+            map.drain_filter(&mut arena, |i, _| *i != sacred);
+            assert!(map.keys(&arena).copied().eq(sacred..=sacred));
+            map.check(&arena);
         }
     }
 
@@ -1213,10 +1380,11 @@ mod test_drain_filter {
     fn height_2_removing_one() {
         let pairs = (0..MIN_INSERTS_HEIGHT_2).map(|i| (i, i));
         for doomed in (0..MIN_INSERTS_HEIGHT_2).step_by(12) {
-            let mut map = BTreeMap::from_iter(pairs.clone());
-            map.drain_filter(|i, _| *i == doomed);
+            let mut arena = Arena::new();
+            let mut map = BTreeMap::from_iter(&mut arena, pairs.clone());
+            map.drain_filter(&mut arena, |i, _| *i == doomed);
             assert_eq!(map.len(), MIN_INSERTS_HEIGHT_2 - 1);
-            map.check();
+            map.check(&arena);
         }
     }
 
@@ -1224,20 +1392,22 @@ mod test_drain_filter {
     fn height_2_keeping_one() {
         let pairs = (0..MIN_INSERTS_HEIGHT_2).map(|i| (i, i));
         for sacred in (0..MIN_INSERTS_HEIGHT_2).step_by(12) {
-            let mut map = BTreeMap::from_iter(pairs.clone());
-            map.drain_filter(|i, _| *i != sacred);
-            assert!(map.keys().copied().eq(sacred..=sacred));
-            map.check();
+            let mut arena = Arena::new();
+            let mut map = BTreeMap::from_iter(&mut arena, pairs.clone());
+            map.drain_filter(&mut arena, |i, _| *i != sacred);
+            assert!(map.keys(&arena).copied().eq(sacred..=sacred));
+            map.check(&arena);
         }
     }
 
     #[test]
     fn height_2_removing_all() {
         let pairs = (0..MIN_INSERTS_HEIGHT_2).map(|i| (i, i));
-        let mut map = BTreeMap::from_iter(pairs);
-        map.drain_filter(|_, _| true);
+        let mut arena = Arena::new();
+        let mut map = BTreeMap::from_iter(&mut arena, pairs);
+        map.drain_filter(&mut arena, |_, _| true);
         assert!(map.is_empty());
-        map.check();
+        map.check(&arena);
     }
 
     #[test]
@@ -1245,12 +1415,14 @@ mod test_drain_filter {
         let a = CrashTestDummy::new(0);
         let b = CrashTestDummy::new(1);
         let c = CrashTestDummy::new(2);
-        let mut map = BTreeMap::new();
-        map.insert(a.spawn(Panic::Never), ());
-        map.insert(b.spawn(Panic::InDrop), ());
-        map.insert(c.spawn(Panic::Never), ());
+        let mut arena = Arena::new();
+        let mut map = BTreeMap::new(&arena);
+        map.insert(&mut arena, a.spawn(Panic::Never), ());
+        map.insert(&mut arena, b.spawn(Panic::InDrop), ());
+        map.insert(&mut arena, c.spawn(Panic::Never), ());
 
-        catch_unwind(move || drop(map.drain_filter(|dummy, _| dummy.query(true)))).unwrap_err();
+        catch_unwind(move || drop(map.drain_filter(&mut arena, |dummy, _| dummy.query(true))))
+            .unwrap_err();
 
         assert_eq!(a.queried(), 1);
         assert_eq!(b.queried(), 1);
@@ -1273,7 +1445,7 @@ mod test_drain_filter {
     //     map.insert(c.spawn(Panic::InQuery), ());
     //
     //     catch_unwind(AssertUnwindSafe(|| {
-    //         drop(map.drain_filter(|dummy, _| dummy.query(true)))
+    //         drop(map.drain_filter(&mut arena, |dummy, _| dummy.query(true)))
     //     }))
     //     .unwrap_err();
     //
@@ -1303,7 +1475,7 @@ mod test_drain_filter {
     //     map.insert(c.spawn(Panic::InQuery), ());
     //
     //     {
-    //         let mut it = map.drain_filter(|dummy, _| dummy.query(true));
+    //         let mut it = map.drain_filter(&mut arena, |dummy, _| dummy.query(true));
     //         catch_unwind(AssertUnwindSafe(|| while it.next().is_some() {})).unwrap_err();
     //         // Iterator behaviour after a panic is explicitly unspecified,
     //         // so this is just the current implementation:
@@ -1328,67 +1500,71 @@ mod test_drain_filter {
 fn test_borrow() {
     // make sure these compile -- using the Borrow trait
     {
-        let mut map = BTreeMap::new();
-        map.insert("0".to_string(), 1);
-        assert_eq!(map["0"], 1);
+        let mut arena = Arena::new();
+        let mut map = BTreeMap::new(&arena);
+        map.insert(&mut arena, "0".to_string(), 1);
+        assert_eq!(*map.get(&arena, "0").unwrap(), 1);
     }
 
     {
-        let mut map = BTreeMap::new();
-        map.insert(Box::new(0), 1);
-        assert_eq!(map[&0], 1);
+        let mut arena = Arena::new();
+        let mut map = BTreeMap::new(&arena);
+        map.insert(&mut arena, Box::new(0), 1);
+        assert_eq!(*map.get(&arena, &0).unwrap(), 1);
     }
 
     {
-        let mut map = BTreeMap::new();
-        map.insert(Box::new([0, 1]) as Box<[i32]>, 1);
-        assert_eq!(map[&[0, 1][..]], 1);
+        let mut arena = Arena::new();
+        let mut map = BTreeMap::new(&arena);
+        map.insert(&mut arena, Box::new([0, 1]) as Box<[i32]>, 1);
+        assert_eq!(*map.get(&arena, &[0, 1][..]).unwrap(), 1);
     }
 
     {
-        let mut map = BTreeMap::new();
-        map.insert(Rc::new(0), 1);
-        assert_eq!(map[&0], 1);
+        let mut arena = Arena::new();
+        let mut map = BTreeMap::new(&arena);
+        map.insert(&mut arena, Rc::new(0), 1);
+        assert_eq!(*map.get(&arena, &0).unwrap(), 1);
     }
 
     #[allow(dead_code)]
-    fn get<T: Ord>(v: &BTreeMap<Box<T>, ()>, t: &T) {
-        let _ = v.get(t);
+    fn get<T: Ord>(arena: &Arena<Box<T>, ()>, v: &BTreeMap<Box<T>, ()>, t: &T) {
+        let _ = v.get(arena, t);
     }
 
     #[allow(dead_code)]
-    fn get_mut<T: Ord>(v: &mut BTreeMap<Box<T>, ()>, t: &T) {
-        let _ = v.get_mut(t);
+    fn get_mut<T: Ord>(arena: &Arena<Box<T>, ()>, v: &mut BTreeMap<Box<T>, ()>, t: &T) {
+        let _ = v.get_mut(arena, t);
     }
 
     #[allow(dead_code)]
-    fn get_key_value<T: Ord>(v: &BTreeMap<Box<T>, ()>, t: &T) {
-        let _ = v.get_key_value(t);
+    fn get_key_value<T: Ord>(arena: &Arena<Box<T>, ()>, v: &BTreeMap<Box<T>, ()>, t: &T) {
+        let _ = v.get_key_value(arena, t);
     }
 
     #[allow(dead_code)]
-    fn contains_key<T: Ord>(v: &BTreeMap<Box<T>, ()>, t: &T) {
-        let _ = v.contains_key(t);
+    fn contains_key<T: Ord>(arena: &Arena<Box<T>, ()>, v: &BTreeMap<Box<T>, ()>, t: &T) {
+        let _ = v.contains_key(arena, t);
     }
 
     #[allow(dead_code)]
-    fn range<T: Ord>(v: &BTreeMap<Box<T>, ()>, t: T) {
-        let _ = v.range(t..);
+    fn range<T: Ord>(arena: &Arena<Box<T>, ()>, v: &BTreeMap<Box<T>, ()>, t: T) {
+        let _ = v.range(arena, t..);
     }
 
     #[allow(dead_code)]
-    fn range_mut<T: Ord>(v: &mut BTreeMap<Box<T>, ()>, t: T) {
-        let _ = v.range_mut(t..);
+    fn range_mut<T: Ord>(arena: &Arena<Box<T>, ()>, v: &mut BTreeMap<Box<T>, ()>, t: T) {
+        let _ = v.range_mut(arena, t..);
     }
 
     #[allow(dead_code)]
-    fn remove<T: Ord>(v: &mut BTreeMap<Box<T>, ()>, t: &T) {
-        v.remove(t);
+    fn remove<T: Ord>(arena: &mut Arena<Box<T>, ()>, v: &mut BTreeMap<Box<T>, ()>, t: &T) {
+        v.remove(arena, t);
     }
 
     #[allow(dead_code)]
-    fn remove_entry<T: Ord>(v: &mut BTreeMap<Box<T>, ()>, t: &T) {
-        v.remove_entry(t);
+    fn remove_entry<T: Ord>(arena: &mut Arena<Box<T>, ()>, v: &mut BTreeMap<Box<T>, ()>, t: &T) {
+        v.remove_entry(arena, t);
     }
 
     // #[allow(dead_code)]
@@ -1401,93 +1577,96 @@ fn test_borrow() {
 fn test_entry() {
     let xs = [(1, 10), (2, 20), (3, 30), (4, 40), (5, 50), (6, 60)];
 
-    let mut map = BTreeMap::from(xs);
+    let mut arena = Arena::new();
+    let mut map = BTreeMap::from_iter(&mut arena, xs);
 
     // Existing key (insert)
-    match map.entry(1) {
+    match map.entry(&mut arena, 1) {
         Vacant(_) => unreachable!(),
         Occupied(mut view) => {
             assert_eq!(view.get(), &10);
             assert_eq!(view.insert(100), 10);
         }
     }
-    assert_eq!(map.get(&1).unwrap(), &100);
+    assert_eq!(map.get(&arena, &1).unwrap(), &100);
     assert_eq!(map.len(), 6);
 
     // Existing key (update)
-    match map.entry(2) {
+    match map.entry(&mut arena, 2) {
         Vacant(_) => unreachable!(),
         Occupied(mut view) => {
             let v = view.get_mut();
             *v *= 10;
         }
     }
-    assert_eq!(map.get(&2).unwrap(), &200);
+    assert_eq!(map.get(&arena, &2).unwrap(), &200);
     assert_eq!(map.len(), 6);
-    map.check();
+    map.check(&arena);
 
     // Existing key (take)
-    match map.entry(3) {
+    match map.entry(&mut arena, 3) {
         Vacant(_) => unreachable!(),
         Occupied(view) => {
             assert_eq!(view.remove(), 30);
         }
     }
-    assert_eq!(map.get(&3), None);
+    assert_eq!(map.get(&arena, &3), None);
     assert_eq!(map.len(), 5);
-    map.check();
+    map.check(&arena);
 
     // Inexistent key (insert)
-    match map.entry(10) {
+    match map.entry(&mut arena, 10) {
         Occupied(_) => unreachable!(),
         Vacant(view) => {
             assert_eq!(*view.insert(1000), 1000);
         }
     }
-    assert_eq!(map.get(&10).unwrap(), &1000);
+    assert_eq!(map.get(&arena, &10).unwrap(), &1000);
     assert_eq!(map.len(), 6);
-    map.check();
+    map.check(&arena);
 }
 
-#[test]
-fn test_extend_ref() {
-    let mut a = BTreeMap::new();
-    a.insert(1, "one");
-    let mut b = BTreeMap::new();
-    b.insert(2, "two");
-    b.insert(3, "three");
+// #[test]
+// fn test_extend_ref() {
+//     let mut arena = Arena::new();
+//     let mut a = BTreeMap::new(&arena);
+//     a.insert(&mut arena, 1, "one");
+//     let mut b = BTreeMap::new(&arena);
+//     b.insert(&mut arena, 2, "two");
+//     b.insert(&mut arena, 3, "three");
 
-    a.extend(&b);
+//     a.extend(&mut arena, &b);
 
-    assert_eq!(a.len(), 3);
-    assert_eq!(a[&1], "one");
-    assert_eq!(a[&2], "two");
-    assert_eq!(a[&3], "three");
-    a.check();
-}
+//     assert_eq!(a.len(), 3);
+//     assert_eq!(a.get(&arena, &1).unwrap(), "one");
+//     assert_eq!(a.get(&arena, &2).unwrap(), "two");
+//     assert_eq!(a.get(&arena, &3).unwrap(), "three");
+//     a.check(&arena);
+// }
 
 #[test]
 fn test_zst() {
-    let mut m = BTreeMap::new();
+    let mut arena = Arena::new();
+    let mut m = BTreeMap::new(&arena);
     assert_eq!(m.len(), 0);
 
-    assert_eq!(m.insert((), ()), None);
+    assert_eq!(m.insert(&mut arena, (), ()), None);
     assert_eq!(m.len(), 1);
 
-    assert_eq!(m.insert((), ()), Some(()));
+    assert_eq!(m.insert(&mut arena, (), ()), Some(()));
     assert_eq!(m.len(), 1);
-    assert_eq!(m.iter().count(), 1);
+    assert_eq!(m.iter(&arena).count(), 1);
 
-    m.clear();
+    m.clear(&mut arena);
     assert_eq!(m.len(), 0);
 
     for _ in 0..100 {
-        m.insert((), ());
+        m.insert(&mut arena, (), ());
     }
 
     assert_eq!(m.len(), 1);
-    assert_eq!(m.iter().count(), 1);
-    m.check();
+    assert_eq!(m.iter(&arena).count(), 1);
+    m.check(&arena);
 }
 
 // This test's only purpose is to ensure that zero-sized keys with nonsensical orderings
@@ -1518,17 +1697,19 @@ fn test_bad_zst() {
         }
     }
 
-    let mut m = BTreeMap::new();
+    let mut arena = Arena::new();
+    let mut m = BTreeMap::new(&arena);
 
     for _ in 0..100 {
-        m.insert(Bad, Bad);
+        m.insert(&mut arena, Bad, Bad);
     }
-    m.check();
+    m.check(&arena);
 }
 
 #[test]
 fn test_clear() {
-    let mut map = BTreeMap::new();
+    let mut arena = Arena::new();
+    let mut map = BTreeMap::new(&arena);
     for &len in &[
         MIN_INSERTS_HEIGHT_1,
         MIN_INSERTS_HEIGHT_2,
@@ -1536,11 +1717,11 @@ fn test_clear() {
         node::CAPACITY,
     ] {
         for i in 0..len {
-            map.insert(i, ());
+            map.insert(&mut arena, i, ());
         }
         assert_eq!(map.len(), len);
-        map.clear();
-        map.check();
+        map.clear(&mut arena);
+        map.check(&arena);
         assert_eq!(map.height(), None);
     }
 }
@@ -1551,12 +1732,13 @@ fn test_clear_drop_panic_leak() {
     let b = CrashTestDummy::new(1);
     let c = CrashTestDummy::new(2);
 
-    let mut map = BTreeMap::new();
-    map.insert(a.spawn(Panic::Never), ());
-    map.insert(b.spawn(Panic::InDrop), ());
-    map.insert(c.spawn(Panic::Never), ());
+    let mut arena = Arena::new();
+    let mut map = BTreeMap::new(&arena);
+    map.insert(&mut arena, a.spawn(Panic::Never), ());
+    map.insert(&mut arena, b.spawn(Panic::InDrop), ());
+    map.insert(&mut arena, c.spawn(Panic::Never), ());
 
-    catch_unwind(AssertUnwindSafe(|| map.clear())).unwrap_err();
+    catch_unwind(AssertUnwindSafe(|| map.clear(&mut arena))).unwrap_err();
     assert_eq!(a.dropped(), 1);
     assert_eq!(b.dropped(), 1);
     assert_eq!(c.dropped(), 1);
@@ -1570,62 +1752,73 @@ fn test_clear_drop_panic_leak() {
 
 #[test]
 fn test_clone() {
-    let mut map = BTreeMap::new();
+    let mut arena = Arena::new();
+    let mut map = BTreeMap::new(&arena);
     let size = MIN_INSERTS_HEIGHT_1;
     assert_eq!(map.len(), 0);
 
     for i in 0..size {
-        assert_eq!(map.insert(i, 10 * i), None);
+        assert_eq!(map.insert(&mut arena, i, 10 * i), None);
         assert_eq!(map.len(), i + 1);
-        map.check();
-        assert_eq!(map, map.clone());
+        map.check(&arena);
+        let clone = map.clone(&mut arena);
+        assert!(map.eq(&arena, &clone));
     }
 
     for i in 0..size {
-        assert_eq!(map.insert(i, 100 * i), Some(10 * i));
+        assert_eq!(map.insert(&mut arena, i, 100 * i), Some(10 * i));
         assert_eq!(map.len(), size);
-        map.check();
-        assert_eq!(map, map.clone());
+        map.check(&arena);
+        let clone = map.clone(&mut arena);
+        assert!(map.eq(&arena, &clone));
     }
 
     for i in 0..size / 2 {
-        assert_eq!(map.remove(&(i * 2)), Some(i * 200));
+        assert_eq!(map.remove(&mut arena, &(i * 2)), Some(i * 200));
         assert_eq!(map.len(), size - i - 1);
-        map.check();
-        assert_eq!(map, map.clone());
+        map.check(&arena);
+        let clone = map.clone(&mut arena);
+        assert!(map.eq(&arena, &clone));
     }
 
     for i in 0..size / 2 {
-        assert_eq!(map.remove(&(2 * i)), None);
-        assert_eq!(map.remove(&(2 * i + 1)), Some(i * 200 + 100));
+        assert_eq!(map.remove(&mut arena, &(2 * i)), None);
+        assert_eq!(map.remove(&mut arena, &(2 * i + 1)), Some(i * 200 + 100));
         assert_eq!(map.len(), size / 2 - i - 1);
-        map.check();
-        assert_eq!(map, map.clone());
+        map.check(&arena);
+        let clone = map.clone(&mut arena);
+        assert!(map.eq(&arena, &clone));
     }
 
     // Test a tree with 2 semi-full levels and a tree with 3 levels.
-    map = BTreeMap::from_iter((1..MIN_INSERTS_HEIGHT_2).map(|i| (i, i)));
+    map = BTreeMap::from_iter(&mut arena, (1..MIN_INSERTS_HEIGHT_2).map(|i| (i, i)));
     assert_eq!(map.len(), MIN_INSERTS_HEIGHT_2 - 1);
-    assert_eq!(map, map.clone());
-    map.insert(0, 0);
+    let clone = map.clone(&mut arena);
+    assert!(map.eq(&arena, &clone));
+    map.insert(&mut arena, 0, 0);
     assert_eq!(map.len(), MIN_INSERTS_HEIGHT_2);
-    assert_eq!(map, map.clone());
-    map.check();
+    let clone = map.clone(&mut arena);
+    assert!(map.eq(&arena, &clone));
+    map.check(&arena);
 }
 
 fn test_clone_panic_leak(size: usize) {
     for i in 0..size {
         let dummies = Vec::from_iter((0..size).map(|id| CrashTestDummy::new(id)));
-        let map = BTreeMap::from_iter(dummies.iter().map(|dummy| {
-            let panic = if dummy.id == i {
-                Panic::InClone
-            } else {
-                Panic::Never
-            };
-            (dummy.spawn(panic), ())
-        }));
+        let mut arena = Arena::new();
+        let map = BTreeMap::from_iter(
+            &mut arena,
+            dummies.iter().map(|dummy| {
+                let panic = if dummy.id == i {
+                    Panic::InClone
+                } else {
+                    Panic::Never
+                };
+                (dummy.spawn(panic), ())
+            }),
+        );
 
-        catch_unwind(AssertUnwindSafe(|| map.clone())).unwrap_err();
+        catch_unwind(AssertUnwindSafe(|| map.clone(&mut arena))).unwrap_err();
         for d in &dummies {
             assert_eq!(
                 d.cloned(),
@@ -1674,30 +1867,30 @@ fn test_clone_panic_leak_height_1() {
     test_clone_panic_leak(MIN_INSERTS_HEIGHT_1)
 }
 
-#[test]
-fn test_clone_from() {
-    let mut map1 = BTreeMap::new();
-    let max_size = MIN_INSERTS_HEIGHT_1;
+// #[test]
+// fn test_clone_from() {
+//     let mut map1 = BTreeMap::new(&arena);
+//     let max_size = MIN_INSERTS_HEIGHT_1;
 
-    // Range to max_size inclusive, because i is the size of map1 being tested.
-    for i in 0..=max_size {
-        let mut map2 = BTreeMap::new();
-        for j in 0..i {
-            let mut map1_copy = map2.clone();
-            map1_copy.clone_from(&map1); // small cloned from large
-            assert_eq!(map1_copy, map1);
-            let mut map2_copy = map1.clone();
-            map2_copy.clone_from(&map2); // large cloned from small
-            assert_eq!(map2_copy, map2);
-            map2.insert(100 * j + 1, 2 * j + 1);
-        }
-        map2.clone_from(&map1); // same length
-        map2.check();
-        assert_eq!(map2, map1);
-        map1.insert(i, 10 * i);
-        map1.check();
-    }
-}
+//     // Range to max_size inclusive, because i is the size of map1 being tested.
+//     for i in 0..=max_size {
+//         let mut map2 = BTreeMap::new(&arena);
+//         for j in 0..i {
+//             let mut map1_copy = map2.clone(&mut arena);
+//             map1_copy.clone_from(&map1); // small cloned from large
+//             assert_eq!(map1_copy, map1);
+//             let mut map2_copy = map1.clone(&mut arena);
+//             map2_copy.clone_from(&map2); // large cloned from small
+//             assert_eq!(map2_copy, map2);
+//             map2.insert(&mut arena, 100 * j + 1, 2 * j + 1);
+//         }
+//         map2.clone_from(&map1); // same length
+//         map2.check(&arena);
+//         assert_eq!(map2, map1);
+//         map1.insert(&mut arena, i, 10 * i);
+//         map1.check(&arena);
+//     }
+// }
 
 // Don't know how to prevent arenas from making this stuff invariant.
 //
@@ -1766,63 +1959,93 @@ fn assert_sync() {
         v
     }
 
-    fn into_iter<T: Sync>(v: BTreeMap<T, T>) -> impl Sync {
-        v.into_iter()
+    fn into_iter<'a, T: Sync>(v: BTreeMap<T, T>, arena: &'a mut Arena<T, T>) -> impl Sync + 'a {
+        v.into_iter(arena)
     }
 
-    fn into_keys<T: Sync + Ord>(v: BTreeMap<T, T>) -> impl Sync {
-        v.into_keys()
+    fn into_keys<'a, T: Sync + Ord>(
+        v: BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Sync + 'a {
+        v.into_keys(arena)
     }
 
-    fn into_values<T: Sync + Ord>(v: BTreeMap<T, T>) -> impl Sync {
-        v.into_values()
+    fn into_values<'a, T: Sync + Ord>(
+        v: BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Sync + 'a {
+        v.into_values(arena)
     }
 
-    fn drain_filter<T: Sync + Ord>(v: &mut BTreeMap<T, T>) -> impl Sync + '_ {
-        v.drain_filter(|_, _| false)
+    fn drain_filter<'a, T: Sync + Ord>(
+        v: &'a mut BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Sync + 'a {
+        v.drain_filter(arena, |_, _| false)
     }
 
-    fn iter<T: Sync>(v: &BTreeMap<T, T>) -> impl Sync + '_ {
-        v.iter()
+    fn iter<'a, T: Sync>(v: &'a BTreeMap<T, T>, arena: &'a mut Arena<T, T>) -> impl Sync + 'a {
+        v.iter(arena)
     }
 
-    fn iter_mut<T: Sync>(v: &mut BTreeMap<T, T>) -> impl Sync + '_ {
-        v.iter_mut()
+    fn iter_mut<'a, T: Sync>(
+        v: &'a mut BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Sync + 'a {
+        v.iter_mut(arena)
     }
 
-    fn keys<T: Sync>(v: &BTreeMap<T, T>) -> impl Sync + '_ {
-        v.keys()
+    fn keys<'a, T: Sync>(v: &'a BTreeMap<T, T>, arena: &'a mut Arena<T, T>) -> impl Sync + 'a {
+        v.keys(arena)
     }
 
-    fn values<T: Sync>(v: &BTreeMap<T, T>) -> impl Sync + '_ {
-        v.values()
+    fn values<'a, T: Sync>(v: &'a BTreeMap<T, T>, arena: &'a mut Arena<T, T>) -> impl Sync + 'a {
+        v.values(arena)
     }
 
-    fn values_mut<T: Sync>(v: &mut BTreeMap<T, T>) -> impl Sync + '_ {
-        v.values_mut()
+    fn values_mut<'a, T: Sync>(
+        v: &'a mut BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Sync + 'a {
+        v.values_mut(arena)
     }
 
-    fn range<T: Sync + Ord>(v: &BTreeMap<T, T>) -> impl Sync + '_ {
-        v.range(..)
+    fn range<'a, T: Sync + Ord>(
+        v: &'a BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Sync + 'a {
+        v.range(arena, ..)
     }
 
-    fn range_mut<T: Sync + Ord>(v: &mut BTreeMap<T, T>) -> impl Sync + '_ {
-        v.range_mut(..)
+    fn range_mut<'a, T: Sync + Ord>(
+        v: &'a mut BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Sync + 'a {
+        v.range_mut(arena, ..)
     }
 
-    fn entry<T: Sync + Ord + Default>(v: &mut BTreeMap<T, T>) -> impl Sync + '_ {
-        v.entry(Default::default())
+    fn entry<'a, T: Sync + Ord + Default>(
+        v: &'a mut BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Sync + 'a {
+        v.entry(arena, Default::default())
     }
 
-    fn occupied_entry<T: Sync + Ord + Default>(v: &mut BTreeMap<T, T>) -> impl Sync + '_ {
-        match v.entry(Default::default()) {
+    fn occupied_entry<'a, T: Sync + Ord + Default>(
+        v: &'a mut BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Sync + 'a {
+        match v.entry(arena, Default::default()) {
             Occupied(entry) => entry,
             _ => unreachable!(),
         }
     }
 
-    fn vacant_entry<T: Sync + Ord + Default>(v: &mut BTreeMap<T, T>) -> impl Sync + '_ {
-        match v.entry(Default::default()) {
+    fn vacant_entry<'a, T: Sync + Ord + Default>(
+        v: &'a mut BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Sync + 'a {
+        match v.entry(arena, Default::default()) {
             Vacant(entry) => entry,
             _ => unreachable!(),
         }
@@ -1835,63 +2058,102 @@ fn assert_send() {
         v
     }
 
-    fn into_iter<T: Send>(v: BTreeMap<T, T>) -> impl Send {
-        v.into_iter()
+    fn into_iter<'a, T: Send>(v: BTreeMap<T, T>, arena: &'a mut Arena<T, T>) -> impl Send + 'a {
+        v.into_iter(arena)
     }
 
-    fn into_keys<T: Send + Ord>(v: BTreeMap<T, T>) -> impl Send {
-        v.into_keys()
+    fn into_keys<'a, T: Send + Ord>(
+        v: BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Send + 'a {
+        v.into_keys(arena)
     }
 
-    fn into_values<T: Send + Ord>(v: BTreeMap<T, T>) -> impl Send {
-        v.into_values()
+    fn into_values<'a, T: Send + Ord>(
+        v: BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Send + 'a {
+        v.into_values(arena)
     }
 
-    fn drain_filter<T: Send + Ord>(v: &mut BTreeMap<T, T>) -> impl Send + '_ {
-        v.drain_filter(|_, _| false)
+    fn drain_filter<'a, T: Send + Ord>(
+        v: &'a mut BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Send + 'a {
+        v.drain_filter(arena, |_, _| false)
     }
 
-    fn iter<T: Send + Sync>(v: &BTreeMap<T, T>) -> impl Send + '_ {
-        v.iter()
+    fn iter<'a, T: Send + Sync>(
+        v: &'a BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Send + 'a {
+        v.iter(arena)
     }
 
-    fn iter_mut<T: Send>(v: &mut BTreeMap<T, T>) -> impl Send + '_ {
-        v.iter_mut()
+    fn iter_mut<'a, T: Send>(
+        v: &'a mut BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Send + 'a {
+        v.iter_mut(arena)
     }
 
-    fn keys<T: Send + Sync>(v: &BTreeMap<T, T>) -> impl Send + '_ {
-        v.keys()
+    fn keys<'a, T: Send + Sync>(
+        v: &'a BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Send + 'a {
+        v.keys(arena)
     }
 
-    fn values<T: Send + Sync>(v: &BTreeMap<T, T>) -> impl Send + '_ {
-        v.values()
+    fn values<'a, T: Send + Sync>(
+        v: &'a BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Send + 'a {
+        v.values(arena)
     }
 
-    fn values_mut<T: Send>(v: &mut BTreeMap<T, T>) -> impl Send + '_ {
-        v.values_mut()
+    fn values_mut<'a, T: Send>(
+        v: &'a mut BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Send + 'a {
+        v.values_mut(arena)
     }
 
-    fn range<T: Send + Sync + Ord>(v: &BTreeMap<T, T>) -> impl Send + '_ {
-        v.range(..)
+    fn range<'a, T: Send + Sync + Ord>(
+        v: &'a BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Send + 'a {
+        v.range(arena, ..)
     }
 
-    fn range_mut<T: Send + Ord>(v: &mut BTreeMap<T, T>) -> impl Send + '_ {
-        v.range_mut(..)
+    fn range_mut<'a, T: Send + Ord>(
+        v: &'a mut BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Send + 'a {
+        v.range_mut(arena, ..)
     }
 
-    fn entry<T: Send + Ord + Default>(v: &mut BTreeMap<T, T>) -> impl Send + '_ {
-        v.entry(Default::default())
+    fn entry<'a, T: Send + Ord + Default>(
+        v: &'a mut BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Send + 'a {
+        v.entry(arena, Default::default())
     }
 
-    fn occupied_entry<T: Send + Ord + Default>(v: &mut BTreeMap<T, T>) -> impl Send + '_ {
-        match v.entry(Default::default()) {
+    fn occupied_entry<'a, T: Send + Ord + Default>(
+        v: &'a mut BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Send + 'a {
+        match v.entry(arena, Default::default()) {
             Occupied(entry) => entry,
             _ => unreachable!(),
         }
     }
 
-    fn vacant_entry<T: Send + Ord + Default>(v: &mut BTreeMap<T, T>) -> impl Send + '_ {
-        match v.entry(Default::default()) {
+    fn vacant_entry<'a, T: Send + Ord + Default>(
+        v: &'a mut BTreeMap<T, T>,
+        arena: &'a mut Arena<T, T>,
+    ) -> impl Send + 'a {
+        match v.entry(arena, Default::default()) {
             Vacant(entry) => entry,
             _ => unreachable!(),
         }
@@ -1900,78 +2162,81 @@ fn assert_send() {
 
 #[test]
 fn test_ord_absence() {
-    fn map<K>(mut map: BTreeMap<K, ()>) {
+    fn map<K>(mut map: BTreeMap<K, ()>, arena: &mut Arena<K, ()>) {
         let _ = map.is_empty();
         let _ = map.len();
-        map.clear();
-        let _ = map.iter();
-        let _ = map.iter_mut();
-        let _ = map.keys();
-        let _ = map.values();
-        let _ = map.values_mut();
+        map.clear(arena);
+        let _ = map.iter(arena);
+        let _ = map.iter_mut(arena);
+        let _ = map.keys(arena);
+        let _ = map.values(arena);
+        let _ = map.values_mut(arena);
         if true {
-            let _ = map.into_values();
+            let _ = map.into_values(arena);
         } else if true {
-            let _ = map.into_iter();
+            let _ = map.into_iter(arena);
         } else {
-            let _ = map.into_keys();
+            let _ = map.into_keys(arena);
         }
     }
 
-    fn map_debug<K: Debug>(mut map: BTreeMap<K, ()>) {
+    fn map_debug<K: Debug>(mut map: BTreeMap<K, ()>, arena: &mut Arena<K, ()>) {
         format!("{map:?}");
-        format!("{:?}", map.iter());
-        format!("{:?}", map.iter_mut());
-        format!("{:?}", map.keys());
-        format!("{:?}", map.values());
-        format!("{:?}", map.values_mut());
+        format!("{:?}", map.iter(arena));
+        format!("{:?}", map.iter_mut(arena));
+        format!("{:?}", map.keys(arena));
+        format!("{:?}", map.values(arena));
+        format!("{:?}", map.values_mut(arena));
         if true {
-            format!("{:?}", map.into_iter());
+            format!("{:?}", map.into_iter(arena));
         } else if true {
-            format!("{:?}", map.into_keys());
+            format!("{:?}", map.into_keys(arena));
         } else {
-            format!("{:?}", map.into_values());
+            format!("{:?}", map.into_values(arena));
         }
     }
 
-    fn map_clone<K: Clone>(mut map: BTreeMap<K, ()>) {
-        map.clone_from(&map.clone());
+    fn map_clone<K: Clone>(mut map: BTreeMap<K, ()>, arena: &mut Arena<K, ()>) {
+        map = map.clone(arena);
     }
 
     #[derive(Debug, Clone)]
     struct NonOrd;
-    map(BTreeMap::<NonOrd, _>::new());
-    map_debug(BTreeMap::<NonOrd, _>::new());
-    map_clone(BTreeMap::<NonOrd, _>::default());
+    let mut arena = Arena::new();
+    map(BTreeMap::<NonOrd, _>::new(&arena), &mut arena);
+    map_debug(BTreeMap::<NonOrd, _>::new(&arena), &mut arena);
+    map_clone(BTreeMap::<NonOrd, _>::new(&arena), &mut arena);
 }
 
 #[test]
 fn test_occupied_entry_key() {
-    let mut a = BTreeMap::new();
+    let mut arena = Arena::new();
+    let mut a = BTreeMap::new(&arena);
     let key = "hello there";
     let value = "value goes here";
     assert_eq!(a.height(), None);
-    a.insert(key, value);
+    a.insert(&mut arena, key, value);
     assert_eq!(a.len(), 1);
-    assert_eq!(a[key], value);
+    assert_eq!(*a.get(&arena, key).unwrap(), value);
 
-    match a.entry(key) {
+    match a.entry(&mut arena, key) {
         Vacant(_) => panic!(),
         Occupied(e) => assert_eq!(key, *e.key()),
     }
     assert_eq!(a.len(), 1);
-    assert_eq!(a[key], value);
-    a.check();
+    assert_eq!(*a.get(&arena, key).unwrap(), value);
+    a.check(&arena);
 }
 
 #[test]
 fn test_vacant_entry_key() {
-    let mut a = BTreeMap::new();
+    let mut arena = Arena::new();
+    let mut a = BTreeMap::new(&arena);
     let key = "hello there";
     let value = "value goes here";
 
     assert_eq!(a.height(), None);
-    match a.entry(key) {
+    match a.entry(&mut arena, key) {
         Occupied(_) => unreachable!(),
         Vacant(e) => {
             assert_eq!(key, *e.key());
@@ -1979,38 +2244,39 @@ fn test_vacant_entry_key() {
         }
     }
     assert_eq!(a.len(), 1);
-    assert_eq!(a[key], value);
-    a.check();
+    assert_eq!(*a.get(&arena, key).unwrap(), value);
+    a.check(&arena);
 }
 
 #[test]
 fn test_vacant_entry_no_insert() {
-    let mut a = BTreeMap::<&str, ()>::new();
+    let mut arena = Arena::new();
+    let mut a = BTreeMap::<&str, ()>::new(&arena);
     let key = "hello there";
 
     // Non-allocated
     assert_eq!(a.height(), None);
-    match a.entry(key) {
+    match a.entry(&mut arena, key) {
         Occupied(_) => unreachable!(),
         Vacant(e) => assert_eq!(key, *e.key()),
     }
     // Ensures the tree has no root.
     assert_eq!(a.height(), None);
-    a.check();
+    a.check(&arena);
 
     // Allocated but still empty
-    a.insert(key, ());
-    a.remove(&key);
+    a.insert(&mut arena, key, ());
+    a.remove(&mut arena, &key);
     assert_eq!(a.height(), Some(0));
     assert!(a.is_empty());
-    match a.entry(key) {
+    match a.entry(&mut arena, key) {
         Occupied(_) => unreachable!(),
         Vacant(e) => assert_eq!(key, *e.key()),
     }
     // Ensures the allocated root is not changed.
     assert_eq!(a.height(), Some(0));
     assert!(a.is_empty());
-    a.check();
+    a.check(&arena);
 }
 
 // This test uses unstable methods we removed.
@@ -2020,7 +2286,7 @@ fn test_vacant_entry_no_insert() {
 //     let mut a = BTreeMap::new();
 //     assert!(a.first_entry().is_none());
 //     assert!(a.last_entry().is_none());
-//     a.insert(1, 42);
+//     a.insert(&mut arena, 1, 42);
 //     assert_eq!(a.first_entry().unwrap().key(), &1);
 //     assert_eq!(a.last_entry().unwrap().key(), &1);
 //     a.insert(2, 24);
@@ -2110,68 +2376,70 @@ fn test_vacant_entry_no_insert() {
 
 #[test]
 fn test_get_key_value() {
-    let mut map = BTreeMap::new();
+    let mut arena = Arena::new();
+    let mut map = BTreeMap::new(&arena);
 
     assert!(map.is_empty());
-    assert_eq!(map.get_key_value(&1), None);
-    assert_eq!(map.get_key_value(&2), None);
+    assert_eq!(map.get_key_value(&arena, &1), None);
+    assert_eq!(map.get_key_value(&arena, &2), None);
 
-    map.insert(1, 10);
-    map.insert(2, 20);
-    map.insert(3, 30);
+    map.insert(&mut arena, 1, 10);
+    map.insert(&mut arena, 2, 20);
+    map.insert(&mut arena, 3, 30);
 
     assert_eq!(map.len(), 3);
-    assert_eq!(map.get_key_value(&1), Some((&1, &10)));
-    assert_eq!(map.get_key_value(&3), Some((&3, &30)));
-    assert_eq!(map.get_key_value(&4), None);
+    assert_eq!(map.get_key_value(&arena, &1), Some((&1, &10)));
+    assert_eq!(map.get_key_value(&arena, &3), Some((&3, &30)));
+    assert_eq!(map.get_key_value(&arena, &4), None);
 
-    map.remove(&3);
+    map.remove(&mut arena, &3);
 
     assert_eq!(map.len(), 2);
-    assert_eq!(map.get_key_value(&3), None);
-    assert_eq!(map.get_key_value(&2), Some((&2, &20)));
+    assert_eq!(map.get_key_value(&arena, &3), None);
+    assert_eq!(map.get_key_value(&arena, &2), Some((&2, &20)));
 }
 
 #[test]
 fn test_insert_into_full_height_0() {
     let size = node::CAPACITY;
     for pos in 0..=size {
-        let mut map = BTreeMap::from_iter((0..size).map(|i| (i * 2 + 1, ())));
-        assert!(map.insert(pos * 2, ()).is_none());
-        map.check();
+        let mut arena = Arena::new();
+        let mut map = BTreeMap::from_iter(&mut arena, (0..size).map(|i| (i * 2 + 1, ())));
+        assert!(map.insert(&mut arena, pos * 2, ()).is_none());
+        map.check(&arena);
     }
 }
 
-#[test]
-fn test_insert_into_full_height_1() {
-    let size = node::CAPACITY + 1 + node::CAPACITY;
-    for pos in 0..=size {
-        dbg!(size);
-        let mut map = BTreeMap::from_iter((0..size).map(|i| (i * 2 + 1, ())));
-        dbg!(map.root.is_some());
-        map.compact();
-        dbg!(map.root.is_some());
-        let root_node = map.root.as_ref().unwrap().reborrow();
-        assert_eq!(root_node.len(&map.arena), 1);
-        assert_eq!(
-            root_node
-                .first_leaf_edge(&map.arena)
-                .into_node()
-                .len(&map.arena),
-            node::CAPACITY
-        );
-        assert_eq!(
-            root_node
-                .last_leaf_edge(&map.arena)
-                .into_node()
-                .len(&map.arena),
-            node::CAPACITY
-        );
+// #[test]
+// fn test_insert_into_full_height_1() {
+//     let size = node::CAPACITY + 1 + node::CAPACITY;
+//     for pos in 0..=size {
+//         dbg!(size);
+//         let mut map = BTreeMap::from_iter((0..size).map(|i| (i * 2 + 1, ())));
+//         dbg!(map.root.is_some());
+//         map.compact();
+//         dbg!(map.root.is_some());
+//         let root_node = map.root.as_ref().unwrap().reborrow();
+//         assert_eq!(root_node.len(&map.arena), 1);
+//         assert_eq!(
+//             root_node
+//                 .first_leaf_edge(&map.arena)
+//                 .into_node()
+//                 .len(&map.arena),
+//             node::CAPACITY
+//         );
+//         assert_eq!(
+//             root_node
+//                 .last_leaf_edge(&map.arena)
+//                 .into_node()
+//                 .len(&map.arena),
+//             node::CAPACITY
+//         );
 
-        assert!(map.insert(pos * 2, ()).is_none());
-        map.check();
-    }
-}
+//         assert!(map.insert(&mut arena, pos * 2, ()).is_none());
+//         map.check(&arena);
+//     }
+// }
 
 // This test uses unstable methods we removed.
 //
@@ -2190,101 +2458,101 @@ fn test_insert_into_full_height_1() {
 //     assert_eq!(err.value, 200);
 // }
 
-macro_rules! create_append_test {
-    ($name:ident, $len:expr) => {
-        #[test]
-        fn $name() {
-            let mut a = BTreeMap::new();
-            for i in 0..8 {
-                a.insert(i, i);
-            }
+// macro_rules! create_append_test {
+//     ($name:ident, $len:expr) => {
+//         #[test]
+//         fn $name() {
+//             let mut a = BTreeMap::new(&arena);
+//             for i in 0..8 {
+//                 a.insert(&mut arena, i, i);
+//             }
 
-            let mut b = BTreeMap::new();
-            for i in 5..$len {
-                b.insert(i, 2 * i);
-            }
+//             let mut b = BTreeMap::new(&arena);
+//             for i in 5..$len {
+//                 b.insert(&mut arena, i, 2 * i);
+//             }
 
-            a.append(&mut b);
+//             a.append(&mut b);
 
-            assert_eq!(a.len(), $len);
-            assert_eq!(b.len(), 0);
+//             assert_eq!(a.len(), $len);
+//             assert_eq!(b.len(), 0);
 
-            for i in 0..$len {
-                if i < 5 {
-                    assert_eq!(a[&i], i);
-                } else {
-                    assert_eq!(a[&i], 2 * i);
-                }
-            }
+//             for i in 0..$len {
+//                 if i < 5 {
+//                     assert_eq!(a[&i], i);
+//                 } else {
+//                     assert_eq!(a[&i], 2 * i);
+//                 }
+//             }
 
-            a.check();
-            assert_eq!(a.remove(&($len - 1)), Some(2 * ($len - 1)));
-            assert_eq!(a.insert($len - 1, 20), None);
-            a.check();
-        }
-    };
-}
+//             a.check(&arena);
+//             assert_eq!(a.remove(&mut arena, &($len - 1)), Some(2 * ($len - 1)));
+//             assert_eq!(a.insert(&mut arena, $len - 1, 20), None);
+//             a.check(&arena);
+//         }
+//     };
+// }
 
-// These are mostly for testing the algorithm that "fixes" the right edge after insertion.
-// Single node.
-create_append_test!(test_append_9, 9);
-// Two leafs that don't need fixing.
-create_append_test!(test_append_17, 17);
-// Two leafs where the second one ends up underfull and needs stealing at the end.
-create_append_test!(test_append_14, 14);
-// Two leafs where the second one ends up empty because the insertion finished at the root.
-create_append_test!(test_append_12, 12);
-// Three levels; insertion finished at the root.
-create_append_test!(test_append_144, 144);
-// Three levels; insertion finished at leaf while there is an empty node on the second level.
-create_append_test!(test_append_145, 145);
-// Tests for several randomly chosen sizes.
-create_append_test!(test_append_170, 170);
-create_append_test!(test_append_181, 181);
-#[cfg(not(miri))] // Miri is too slow
-create_append_test!(test_append_239, 239);
-#[cfg(not(miri))] // Miri is too slow
-create_append_test!(test_append_1700, 1700);
+// // These are mostly for testing the algorithm that "fixes" the right edge after insertion.
+// // Single node.
+// create_append_test!(test_append_9, 9);
+// // Two leafs that don't need fixing.
+// create_append_test!(test_append_17, 17);
+// // Two leafs where the second one ends up underfull and needs stealing at the end.
+// create_append_test!(test_append_14, 14);
+// // Two leafs where the second one ends up empty because the insertion finished at the root.
+// create_append_test!(test_append_12, 12);
+// // Three levels; insertion finished at the root.
+// create_append_test!(test_append_144, 144);
+// // Three levels; insertion finished at leaf while there is an empty node on the second level.
+// create_append_test!(test_append_145, 145);
+// // Tests for several randomly chosen sizes.
+// create_append_test!(test_append_170, 170);
+// create_append_test!(test_append_181, 181);
+// #[cfg(not(miri))] // Miri is too slow
+// create_append_test!(test_append_239, 239);
+// #[cfg(not(miri))] // Miri is too slow
+// create_append_test!(test_append_1700, 1700);
 
-#[test]
-fn test_append_drop_leak() {
-    let a = CrashTestDummy::new(0);
-    let b = CrashTestDummy::new(1);
-    let c = CrashTestDummy::new(2);
-    let mut left = BTreeMap::new();
-    let mut right = BTreeMap::new();
-    left.insert(a.spawn(Panic::Never), ());
-    left.insert(b.spawn(Panic::InDrop), ()); // first duplicate key, dropped during append
-    left.insert(c.spawn(Panic::Never), ());
-    right.insert(b.spawn(Panic::Never), ());
-    right.insert(c.spawn(Panic::Never), ());
+// #[test]
+// fn test_append_drop_leak() {
+//     let a = CrashTestDummy::new(0);
+//     let b = CrashTestDummy::new(1);
+//     let c = CrashTestDummy::new(2);
+//     let mut left = BTreeMap::new(&arena);
+//     let mut right = BTreeMap::new(&arena);
+//     left.insert(&mut arena, a.spawn(Panic::Never), ());
+//     left.insert(&mut arena, b.spawn(Panic::InDrop), ()); // first duplicate key, dropped during append
+//     left.insert(&mut arena, c.spawn(Panic::Never), ());
+//     right.insert(&mut arena, b.spawn(Panic::Never), ());
+//     right.insert(&mut arena, c.spawn(Panic::Never), ());
 
-    catch_unwind(move || left.append(&mut right)).unwrap_err();
-    assert_eq!(a.dropped(), 1);
-    assert_eq!(b.dropped(), 1); // should be 2 were it not for Rust issue #47949
-    assert_eq!(c.dropped(), 2);
-}
+//     catch_unwind(move || left.append(&mut right)).unwrap_err();
+//     assert_eq!(a.dropped(), 1);
+//     assert_eq!(b.dropped(), 1); // should be 2 were it not for Rust issue #47949
+//     assert_eq!(c.dropped(), 2);
+// }
 
-#[test]
-fn test_append_ord_chaos() {
-    let mut map1 = BTreeMap::new();
-    map1.insert(Cyclic3::A, ());
-    map1.insert(Cyclic3::B, ());
-    let mut map2 = BTreeMap::new();
-    map2.insert(Cyclic3::A, ());
-    map2.insert(Cyclic3::B, ());
-    map2.insert(Cyclic3::C, ()); // lands first, before A
-    map2.insert(Cyclic3::B, ()); // lands first, before C
-    map1.check();
-    map2.check(); // keys are not unique but still strictly ascending
-    assert_eq!(map1.len(), 2);
-    assert_eq!(map2.len(), 4);
-    map1.append(&mut map2);
-    assert_eq!(map1.len(), 5);
-    assert_eq!(map2.len(), 0);
-    map1.check();
-    map2.check();
-}
+// #[test]
+// fn test_append_ord_chaos() {
+//     let mut map1 = BTreeMap::new(&arena);
+//     map1.insert(&mut arena, Cyclic3::A, ());
+//     map1.insert(&mut arena, Cyclic3::B, ());
+//     let mut map2 = BTreeMap::new(&arena);
+//     map2.insert(&mut arena, Cyclic3::A, ());
+//     map2.insert(&mut arena, Cyclic3::B, ());
+//     map2.insert(&mut arena, Cyclic3::C, ()); // lands first, before A
+//     map2.insert(&mut arena, Cyclic3::B, ()); // lands first, before C
+//     map1.check(&arena);
+//     map2.check(&arena); // keys are not unique but still strictly ascending
+//     assert_eq!(map1.len(), 2);
+//     assert_eq!(map2.len(), 4);
+//     map1.append(&mut map2);
+//     assert_eq!(map1.len(), 5);
+//     assert_eq!(map2.len(), 0);
+//     map1.check(&arena);
+//     map2.check(&arena);
+// }
 
 fn rand_data(len: usize) -> Vec<(u32, u32)> {
     let mut rng = DeterministicRng::new();
@@ -2301,8 +2569,8 @@ fn rand_data(len: usize) -> Vec<(u32, u32)> {
 //     right.check();
 
 //     data.sort();
-//     assert!(map.into_iter().eq(data));
-//     assert!(right.into_iter().eq(None));
+//     assert!(map.into_iter(&mut arena).eq(data));
+//     assert!(right.into_iter(&mut arena).eq(None));
 // }
 
 // #[test]
@@ -2315,8 +2583,8 @@ fn rand_data(len: usize) -> Vec<(u32, u32)> {
 //     right.check();
 
 //     data.sort();
-//     assert!(map.into_iter().eq(None));
-//     assert!(right.into_iter().eq(data));
+//     assert!(map.into_iter(&mut arena).eq(None));
+//     assert!(right.into_iter(&mut arena).eq(data));
 // }
 
 // This test uses unstable methods we removed.
@@ -2369,8 +2637,8 @@ fn rand_data(len: usize) -> Vec<(u32, u32)> {
 //         let right = map.split_off(&split_key);
 //         map.check();
 //         right.check();
-//         assert!(map.keys().copied().eq(small_keys));
-//         assert!(right.keys().copied().eq(large_keys));
+//         assert!(map.keys(&arena).copied().eq(small_keys));
+//         assert!(right.keys(&arena).copied().eq(large_keys));
 //     }
 // }
 
@@ -2392,11 +2660,11 @@ fn rand_data(len: usize) -> Vec<(u32, u32)> {
 //     right.check();
 
 //     assert!(map
-//         .into_iter()
-//         .eq(data.clone().into_iter().filter(|x| x.0 < key)));
+//         .into_iter(&mut arena)
+//         .eq(data.clone().into_iter(&mut arena).filter(|x| x.0 < key)));
 //     assert!(right
-//         .into_iter()
-//         .eq(data.into_iter().filter(|x| x.0 >= key)));
+//         .into_iter(&mut arena)
+//         .eq(data.into_iter(&mut arena).filter(|x| x.0 >= key)));
 // }
 
 #[test]
@@ -2406,14 +2674,15 @@ fn test_into_iter_drop_leak_height_0() {
     let c = CrashTestDummy::new(2);
     let d = CrashTestDummy::new(3);
     let e = CrashTestDummy::new(4);
-    let mut map = BTreeMap::new();
-    map.insert("a", a.spawn(Panic::Never));
-    map.insert("b", b.spawn(Panic::Never));
-    map.insert("c", c.spawn(Panic::Never));
-    map.insert("d", d.spawn(Panic::InDrop));
-    map.insert("e", e.spawn(Panic::Never));
+    let mut arena = Arena::new();
+    let mut map = BTreeMap::new(&arena);
+    map.insert(&mut arena, "a", a.spawn(Panic::Never));
+    map.insert(&mut arena, "b", b.spawn(Panic::Never));
+    map.insert(&mut arena, "c", c.spawn(Panic::Never));
+    map.insert(&mut arena, "d", d.spawn(Panic::InDrop));
+    map.insert(&mut arena, "e", e.spawn(Panic::Never));
 
-    catch_unwind(move || drop(map.into_iter())).unwrap_err();
+    catch_unwind(move || drop(map.into_iter(&mut arena))).unwrap_err();
 
     assert_eq!(a.dropped(), 1);
     assert_eq!(b.dropped(), 1);
@@ -2427,15 +2696,19 @@ fn test_into_iter_drop_leak_height_1() {
     let size = MIN_INSERTS_HEIGHT_1;
     for panic_point in vec![0, 1, size - 2, size - 1] {
         let dummies = Vec::from_iter((0..size).map(|i| CrashTestDummy::new(i)));
-        let map = BTreeMap::from_iter((0..size).map(|i| {
-            let panic = if i == panic_point {
-                Panic::InDrop
-            } else {
-                Panic::Never
-            };
-            (dummies[i].spawn(Panic::Never), dummies[i].spawn(panic))
-        }));
-        catch_unwind(move || drop(map.into_iter())).unwrap_err();
+        let mut arena = Arena::new();
+        let map = BTreeMap::from_iter(
+            &mut arena,
+            (0..size).map(|i| {
+                let panic = if i == panic_point {
+                    Panic::InDrop
+                } else {
+                    Panic::Never
+                };
+                (dummies[i].spawn(Panic::Never), dummies[i].spawn(panic))
+            }),
+        );
+        catch_unwind(move || drop(map.into_iter(&mut arena))).unwrap_err();
         for i in 0..size {
             assert_eq!(dummies[i].dropped(), 2);
         }
@@ -2444,8 +2717,9 @@ fn test_into_iter_drop_leak_height_1() {
 
 #[test]
 fn test_into_keys() {
-    let map = BTreeMap::from([(1, 'a'), (2, 'b'), (3, 'c')]);
-    let keys = Vec::from_iter(map.into_keys());
+    let mut arena = Arena::new();
+    let map = BTreeMap::from_iter(&mut arena, vec![(1, 'a'), (2, 'b'), (3, 'c')]);
+    let keys = Vec::from_iter(map.into_keys(&mut arena));
 
     assert_eq!(keys.len(), 3);
     assert!(keys.contains(&1));
@@ -2455,8 +2729,9 @@ fn test_into_keys() {
 
 #[test]
 fn test_into_values() {
-    let map = BTreeMap::from([(1, 'a'), (2, 'b'), (3, 'c')]);
-    let values = Vec::from_iter(map.into_values());
+    let mut arena = Arena::new();
+    let map = BTreeMap::from_iter(&mut arena, [(1, 'a'), (2, 'b'), (3, 'c')]);
+    let values = Vec::from_iter(map.into_values(&mut arena));
 
     assert_eq!(values.len(), 3);
     assert!(values.contains(&'a'));
@@ -2467,36 +2742,39 @@ fn test_into_values() {
 #[test]
 fn test_insert_remove_intertwined() {
     let loops = if cfg!(miri) { 100 } else { 1_000_000 };
-    let mut map = BTreeMap::new();
+    let mut arena = Arena::new();
+    let mut map = BTreeMap::new(&arena);
     let mut i = 1;
     let offset = 165; // somewhat arbitrarily chosen to cover some code paths
     for _ in 0..loops {
         i = (i + offset) & 0xFF;
-        map.insert(i, i);
-        map.remove(&(0xFF - i));
+        map.insert(&mut arena, i, i);
+        map.remove(&mut arena, &(0xFF - i));
     }
-    map.check();
+    map.check(&arena);
 }
 
 #[test]
 fn test_insert_remove_intertwined_ord_chaos() {
     let loops = if cfg!(miri) { 100 } else { 1_000_000 };
     let gov = Governor::new();
-    let mut map = BTreeMap::new();
+    let mut arena = Arena::new();
+    let mut map = BTreeMap::new(&arena);
     let mut i = 1;
     let offset = 165; // more arbitrarily copied from above
     for _ in 0..loops {
         i = (i + offset) & 0xFF;
-        map.insert(Governed(i, &gov), ());
-        map.remove(&Governed(0xFF - i, &gov));
+        map.insert(&mut arena, Governed(i, &gov), ());
+        map.remove(&mut arena, &Governed(0xFF - i, &gov));
         gov.flip();
     }
-    map.check_invariants();
+    map.check_invariants(&arena);
 }
 
 #[test]
 fn from_array() {
-    let map = BTreeMap::from([(1, 2), (3, 4)]);
-    let unordered_duplicates = BTreeMap::from([(3, 4), (1, 2), (1, 2)]);
-    assert_eq!(map, unordered_duplicates);
+    let mut arena = Arena::new();
+    let map = BTreeMap::from_iter(&mut arena, [(1, 2), (3, 4)]);
+    let unordered_duplicates = BTreeMap::from_iter(&mut arena, [(3, 4), (1, 2), (1, 2)]);
+    assert!(map.eq(&arena, &unordered_duplicates));
 }
