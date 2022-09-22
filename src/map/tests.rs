@@ -499,6 +499,7 @@ fn test_values_mut_mutation() {
     let values = Vec::from_iter(a.values(&arena).cloned());
     assert_eq!(values, [String::from("hello!"), String::from("goodbye!")]);
     a.check(&arena);
+    a.drop(&mut arena);
 }
 
 #[test]
@@ -1078,6 +1079,7 @@ fn test_range_borrowed_key() {
     assert_eq!(iter.next(), Some((&"baboon".to_string(), &2)));
     assert_eq!(iter.next(), Some((&"coyote".to_string(), &3)));
     assert_eq!(iter.next(), None);
+    map.drop(&mut arena);
 }
 
 #[test]
@@ -1423,7 +1425,6 @@ mod test_drain_filter {
 
         catch_unwind(move || drop(map.drain_filter(&mut arena, |dummy, _| dummy.query(true))))
             .unwrap_err();
-        println!("done unwinding");
 
         assert_eq!(a.queried(), 1);
         assert_eq!(b.queried(), 1);
@@ -1506,6 +1507,7 @@ fn test_borrow() {
         let mut map = BTreeMap::new(&arena);
         map.insert(&mut arena, "0".to_string(), 1);
         assert_eq!(*map.get(&arena, "0").unwrap(), 1);
+        map.drop(&mut arena);
     }
 
     {
@@ -1513,6 +1515,7 @@ fn test_borrow() {
         let mut map = BTreeMap::new(&arena);
         map.insert(&mut arena, Box::new(0), 1);
         assert_eq!(*map.get(&arena, &0).unwrap(), 1);
+        map.drop(&mut arena);
     }
 
     {
@@ -1520,6 +1523,7 @@ fn test_borrow() {
         let mut map = BTreeMap::new(&arena);
         map.insert(&mut arena, Box::new([0, 1]) as Box<[i32]>, 1);
         assert_eq!(*map.get(&arena, &[0, 1][..]).unwrap(), 1);
+        map.drop(&mut arena);
     }
 
     {
@@ -1527,6 +1531,7 @@ fn test_borrow() {
         let mut map = BTreeMap::new(&arena);
         map.insert(&mut arena, Rc::new(0), 1);
         assert_eq!(*map.get(&arena, &0).unwrap(), 1);
+        map.drop(&mut arena);
     }
 
     #[allow(dead_code)]
@@ -1746,7 +1751,7 @@ fn test_clear_drop_panic_leak() {
     assert_eq!(c.dropped(), 1);
     assert_eq!(map.len(), 0);
 
-    drop(map);
+    map.drop(&mut arena);
     assert_eq!(a.dropped(), 1);
     assert_eq!(b.dropped(), 1);
     assert_eq!(c.dropped(), 1);
@@ -1765,6 +1770,7 @@ fn test_clone() {
         map.check(&arena);
         let clone = map.clone(&mut arena);
         assert!(map.eq(&arena, &clone));
+        clone.drop(&mut arena);
     }
 
     for i in 0..size {
@@ -1773,6 +1779,7 @@ fn test_clone() {
         map.check(&arena);
         let clone = map.clone(&mut arena);
         assert!(map.eq(&arena, &clone));
+        clone.drop(&mut arena);
     }
 
     for i in 0..size / 2 {
@@ -1781,6 +1788,7 @@ fn test_clone() {
         map.check(&arena);
         let clone = map.clone(&mut arena);
         assert!(map.eq(&arena, &clone));
+        clone.drop(&mut arena);
     }
 
     for i in 0..size / 2 {
@@ -1790,18 +1798,27 @@ fn test_clone() {
         map.check(&arena);
         let clone = map.clone(&mut arena);
         assert!(map.eq(&arena, &clone));
+        clone.drop(&mut arena);
     }
 
+    map.drop(&mut arena);
+
     // Test a tree with 2 semi-full levels and a tree with 3 levels.
-    map = BTreeMap::from_iter(&mut arena, (1..MIN_INSERTS_HEIGHT_2).map(|i| (i, i)));
+    let mut map = BTreeMap::from_iter(&mut arena, (1..MIN_INSERTS_HEIGHT_2).map(|i| (i, i)));
     assert_eq!(map.len(), MIN_INSERTS_HEIGHT_2 - 1);
+
     let clone = map.clone(&mut arena);
     assert!(map.eq(&arena, &clone));
+    clone.drop(&mut arena);
+
     map.insert(&mut arena, 0, 0);
     assert_eq!(map.len(), MIN_INSERTS_HEIGHT_2);
     let clone = map.clone(&mut arena);
     assert!(map.eq(&arena, &clone));
+    clone.drop(&mut arena);
+
     map.check(&arena);
+    map.drop(&mut arena);
 }
 
 fn test_clone_panic_leak(size: usize) {
@@ -1821,25 +1838,26 @@ fn test_clone_panic_leak(size: usize) {
         );
 
         catch_unwind(AssertUnwindSafe(|| map.clone(&mut arena))).unwrap_err();
+
         for d in &dummies {
             assert_eq!(
                 d.cloned(),
                 if d.id <= i { 1 } else { 0 },
-                "id={}/{}",
+                "clones; id={}; i={}",
                 d.id,
                 i
             );
             assert_eq!(
                 d.dropped(),
                 if d.id < i { 1 } else { 0 },
-                "id={}/{}",
+                "drops; id={}; i={}",
                 d.id,
                 i
             );
         }
         assert_eq!(map.len(), size);
 
-        drop(map);
+        map.drop(&mut arena);
         for d in &dummies {
             assert_eq!(
                 d.cloned(),

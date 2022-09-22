@@ -80,6 +80,13 @@ pub struct BTreeSet<T> {
     map: BTreeMap<T, SetValZST>,
 }
 
+impl<T> BTreeSet<T> {
+    /// TODO FITZGEN
+    pub fn drop(self, arena: &mut SetArena<T>) {
+        self.map.drop(arena);
+    }
+}
+
 impl<T: Hash> BTreeSet<T> {
     /// TODO FITZGEN
     pub fn hash<H: Hasher>(&self, arena: &SetArena<T>, state: &mut H) {

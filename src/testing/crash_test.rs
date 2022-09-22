@@ -76,7 +76,7 @@ impl Instance<'_> {
     pub fn query<R>(&self, result: R) -> R {
         self.origin.queried.fetch_add(1, SeqCst);
         if self.panic == Panic::InQuery {
-            panic!("panic in `query`");
+            panic!("panic in `query` for id={}", self.id());
         }
         result
     }
@@ -86,7 +86,7 @@ impl Clone for Instance<'_> {
     fn clone(&self) -> Self {
         self.origin.cloned.fetch_add(1, SeqCst);
         if self.panic == Panic::InClone {
-            panic!("panic in `clone`");
+            panic!("panic in `clone` for id={}", self.id());
         }
         Self {
             origin: self.origin,
@@ -99,7 +99,7 @@ impl Drop for Instance<'_> {
     fn drop(&mut self) {
         self.origin.dropped.fetch_add(1, SeqCst);
         if self.panic == Panic::InDrop {
-            panic!("panic in `drop`");
+            panic!("panic in `drop` for id={}", self.id());
         }
     }
 }

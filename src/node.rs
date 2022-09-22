@@ -216,6 +216,25 @@ where
     _marker: PhantomData<(BorrowType, Type)>,
 }
 
+impl<BorrowType, K, V, Type> NodeRef<BorrowType, K, V, Type>
+where
+    Type: marker::IdForType<K, V>,
+{
+    pub(crate) fn into_raw_parts(self) -> (Type::Id, usize) {
+        (self.node, self.height)
+    }
+
+    /// Very unsafe. Does not check safety invariants or borrows. Equivalent to
+    /// creating a node reference from a raw pointer.
+    pub(crate) unsafe fn from_raw_parts(node: Type::Id, height: usize) -> Self {
+        Self {
+            height,
+            node,
+            _marker: PhantomData,
+        }
+    }
+}
+
 /// The root node of an owned tree.
 ///
 /// Note that this does not have a destructor, and must be cleaned up manually.

@@ -449,6 +449,7 @@ fn test_drain_filter_pred_panic_leak() {
     assert_eq!(set.len(), 2);
     // assert_eq!(set.first().unwrap().id(), 1);
     // assert_eq!(set.last().unwrap().id(), 2);
+    set.drop(&mut arena);
 }
 
 #[test]

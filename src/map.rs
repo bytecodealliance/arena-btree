@@ -171,6 +171,9 @@ pub struct BTreeMap<K, V> {
     // appropriate length.
     arena_id: usize,
 
+    #[cfg(debug_assertions)]
+    dropped: bool,
+
     // For dropck; the `Box` avoids making the `Unpin` impl more strict than before
     _marker: PhantomData<Box<(K, V)>>,
 }
@@ -200,49 +203,75 @@ impl<K: Clone, V: Clone> BTreeMap<K, V> {
             K: 'a,
             V: 'a,
         {
+            // Guard to ensure we run `Drop`s on the tree elements if cloning
+            // panics.
+            struct Guard<'a, K, V>(&'a mut Arena<K, V>, ManuallyDrop<BTreeMap<K, V>>);
+            impl<'a, K, V> Drop for Guard<'a, K, V> {
+                fn drop(&mut self) {
+                    unsafe {
+                        let tree = std::ptr::read(&mut *self.1);
+                        tree.drop(self.0);
+                    }
+                }
+            }
+            impl<'a, K, V> Guard<'a, K, V> {
+                fn finish(mut self) -> BTreeMap<K, V> {
+                    unsafe {
+                        let tree = std::ptr::read(&mut *self.1);
+                        mem::forget(self);
+                        tree
+                    }
+                }
+            }
+
             match node.force() {
                 Leaf(leaf) => {
-                    let mut out_tree = BTreeMap {
+                    let out_tree = BTreeMap {
                         root: Some(Root::new(arena)),
                         length: 0,
                         arena_id: arena.id(),
                         _marker: PhantomData,
+                        #[cfg(debug_assertions)]
+                        dropped: false,
                     };
+                    let mut out_tree = Guard(arena, ManuallyDrop::new(out_tree));
 
                     {
-                        let root = out_tree.root.as_mut().unwrap(); // unwrap succeeds because we just wrapped
-                        let mut out_node = match root.borrow_mut().force() {
-                            Leaf(leaf) => leaf,
-                            Internal(_) => unreachable!(),
-                        };
+                        let mut in_edge = leaf.first_edge(out_tree.0);
+                        while let Ok(kv) = in_edge.right_kv(out_tree.0) {
+                            let (k, v) = kv.into_kv(out_tree.0);
+                            in_edge = kv.right_edge(out_tree.0);
 
-                        let mut in_edge = leaf.first_edge(arena);
-                        while let Ok(kv) = in_edge.right_kv(arena) {
-                            let (k, v) = kv.into_kv(arena);
-                            in_edge = kv.right_edge(arena);
-
-                            out_node.push(k.clone(), v.clone(), arena);
-                            out_tree.length += 1;
+                            {
+                                let root = out_tree.1.root.as_mut().unwrap(); // unwrap succeeds because we just wrapped
+                                let mut out_node = match root.borrow_mut().force() {
+                                    Leaf(leaf) => leaf,
+                                    Internal(_) => unreachable!(),
+                                };
+                                out_node.push(k.clone(), v.clone(), out_tree.0);
+                            }
+                            out_tree.1.length += 1;
                         }
                     }
 
-                    out_tree
+                    out_tree.finish()
                 }
                 Internal(internal) => {
-                    let mut out_tree =
-                        clone_subtree(internal.first_edge(&arena).descend(arena), arena);
+                    let out_tree = clone_subtree(internal.first_edge(&arena).descend(arena), arena);
+                    let mut out_tree = Guard(arena, ManuallyDrop::new(out_tree));
 
                     {
-                        let out_root = out_tree.root.as_mut().unwrap();
-                        let mut out_node = out_root.push_internal_level(arena);
-                        let mut in_edge = internal.first_edge(arena);
-                        while let Ok(kv) = in_edge.right_kv(arena) {
-                            let (k, v) = kv.into_kv(arena);
-                            in_edge = kv.right_edge(arena);
+                        let out_root = out_tree.1.root.as_mut().unwrap();
+                        let mut out_node = out_root.push_internal_level(out_tree.0);
+                        let (out_node_id, out_node_height) = out_node.into_raw_parts();
+                        let mut in_edge = internal.first_edge(out_tree.0);
+                        while let Ok(kv) = in_edge.right_kv(out_tree.0) {
+                            let (k, v) = kv.into_kv(out_tree.0);
+                            in_edge = kv.right_edge(out_tree.0);
 
                             let k = (*k).clone();
                             let v = (*v).clone();
-                            let subtree = clone_subtree(in_edge.descend(arena), arena);
+                            let subtree = clone_subtree(in_edge.descend(out_tree.0), out_tree.0);
 
                             // We can't destructure subtree directly
                             // because BTreeMap implements Drop
@@ -253,12 +282,24 @@ impl<K: Clone, V: Clone> BTreeMap<K, V> {
                                 (root, length)
                             };
 
-                            out_node.push(k, v, subroot.unwrap_or_else(|| Root::new(arena)), arena);
-                            out_tree.length += 1 + sublength;
+                            // Recreate the `out_node` each iteration of the
+                            // loop to avoid holding a mutable borrow of
+                            // `out_tree.1` across the loop, preventing the
+                            // length update below from passing the borrow
+                            // checker.
+                            let mut out_node: NodeRef<marker::Mut<'_>, K, V, marker::Internal> =
+                                unsafe { NodeRef::from_raw_parts(out_node_id, out_node_height) };
+                            out_node.push(
+                                k,
+                                v,
+                                subroot.unwrap_or_else(|| Root::new(out_tree.0)),
+                                out_tree.0,
+                            );
+                            out_tree.1.length += 1 + sublength;
                         }
                     }
 
-                    out_tree
+                    out_tree.finish()
                 }
             }
         }
@@ -544,6 +585,8 @@ impl<K, V> BTreeMap<K, V> {
             length: 0,
             arena_id: arena.id(),
             _marker: PhantomData,
+            #[cfg(debug_assertions)]
+            dropped: false,
         }
     }
 
@@ -568,15 +611,36 @@ impl<K, V> BTreeMap<K, V> {
             length: mem::replace(&mut self.length, 0),
             arena_id: self.arena_id,
             _marker: PhantomData,
+            #[cfg(debug_assertions)]
+            dropped: false,
         }
         .drop(arena);
     }
 }
 
+#[cfg(debug_assertions)]
+impl<K, V> Drop for BTreeMap<K, V> {
+    fn drop(&mut self) {
+        debug_assert!(
+            self.dropped
+                || !(mem::needs_drop::<K>() || mem::needs_drop::<V>())
+                || std::thread::panicking(),
+            "BTreeMap will leak entries if you don't explicitly call `my_map.drop(&mut arena)`! If
+             you are okay with that, then call `std::mem::forget(my_map)`"
+        );
+    }
+}
+
 impl<K, V> BTreeMap<K, V> {
     /// TODO FITZGEN
-    pub fn drop(self, arena: &mut Arena<K, V>) {
+    pub fn drop(mut self, arena: &mut Arena<K, V>) {
         assert_eq!(arena.id(), self.arena_id);
+
+        #[cfg(debug_assertions)]
+        {
+            self.dropped = true;
+        }
+
         drop(self.into_iter(arena));
     }
 
@@ -1224,6 +1288,8 @@ impl<K, V> BTreeMap<K, V> {
             length,
             arena_id: arena.id(),
             _marker: PhantomData,
+            #[cfg(debug_assertions)]
+            dropped: false,
         }
     }
 }
