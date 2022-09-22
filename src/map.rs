@@ -679,8 +679,8 @@ impl<K, V> Drop for BTreeMap<K, V> {
     fn drop(&mut self) {
         debug_assert!(
             self.dropped || self.is_empty() || std::thread::panicking(),
-            "`arena_btree::BTreeMap` will leak entries if you don't explicitly call
-             `my_map.drop(&mut arena)`! If you are okay with leaking, then call
+            "`arena_btree::BTreeMap` will leak entries if you don't explicitly call \
+             `my_map.drop(&mut arena)`! If you are okay with leaking, then call \
              `my_map.forget()` instead."
         );
     }
