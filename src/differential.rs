@@ -387,8 +387,11 @@ mod tests {
         let mut buf = vec![];
         let mut rng = rand::thread_rng();
 
+        // MIRI is too slow.
+        let iters = if cfg!(miri) { 1 } else { 2_000 };
+
         for input_size in vec![2, 8, 32, 128, 512, 2048] {
-            for _ in 0..2_000 {
+            for _ in 0..iters {
                 buf.resize(input_size, 0);
                 rng.fill(&mut buf[..]);
 
