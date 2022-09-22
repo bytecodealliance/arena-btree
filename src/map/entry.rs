@@ -84,12 +84,14 @@ impl<'a, K: Ord, V> Entry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new();
-    /// map.entry("poneyland").or_insert(12);
+    /// let mut arena = Arena::new();
+    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new(&arena);
+    /// map.entry(&mut arena, "poneyland").or_insert(12);
     ///
-    /// assert_eq!(map["poneyland"], 12);
+    /// assert_eq!(map.get(&arena, "poneyland"), Some(&12));
+    /// map.drop(&mut arena);
     /// ```
     pub fn or_insert(self, default: V) -> &'a mut V {
         match self {
@@ -104,14 +106,16 @@ impl<'a, K: Ord, V> Entry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut map: BTreeMap<&str, String> = BTreeMap::new();
+    /// let mut arena = Arena::new();
+    /// let mut map: BTreeMap<&str, String> = BTreeMap::new(&arena);
     /// let s = "hoho".to_string();
     ///
-    /// map.entry("poneyland").or_insert_with(|| s);
+    /// map.entry(&mut arena, "poneyland").or_insert_with(|| s);
     ///
-    /// assert_eq!(map["poneyland"], "hoho".to_string());
+    /// assert_eq!(map.get(&arena, "poneyland"), Some(&"hoho".to_string()));
+    /// map.drop(&mut arena);
     /// ```
     pub fn or_insert_with<F: FnOnce() -> V>(self, default: F) -> &'a mut V {
         match self {
@@ -130,13 +134,15 @@ impl<'a, K: Ord, V> Entry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new();
+    /// let mut arena = Arena::new();
+    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new(&arena);
     ///
-    /// map.entry("poneyland").or_insert_with_key(|key| key.chars().count());
+    /// map.entry(&mut arena, "poneyland").or_insert_with_key(|key| key.chars().count());
     ///
-    /// assert_eq!(map["poneyland"], 9);
+    /// assert_eq!(map.get(&arena, "poneyland"), Some(&9));
+    /// map.drop(&mut arena);
     /// ```
     #[inline]
     pub fn or_insert_with_key<F: FnOnce(&K) -> V>(self, default: F) -> &'a mut V {
@@ -154,10 +160,12 @@ impl<'a, K: Ord, V> Entry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new();
-    /// assert_eq!(map.entry("poneyland").key(), &"poneyland");
+    /// let mut arena = Arena::new();
+    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new(&arena);
+    /// assert_eq!(map.entry(&mut arena, "poneyland").key(), &"poneyland");
+    /// map.drop(&mut arena);
     /// ```
     pub fn key(&self) -> &K {
         match *self {
@@ -172,19 +180,22 @@ impl<'a, K: Ord, V> Entry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new();
+    /// let mut arena = Arena::new();
+    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new(&arena);
     ///
-    /// map.entry("poneyland")
+    /// map.entry(&mut arena, "poneyland")
     ///    .and_modify(|e| { *e += 1 })
     ///    .or_insert(42);
-    /// assert_eq!(map["poneyland"], 42);
+    /// assert_eq!(map.get(&arena, "poneyland"), Some(&42));
     ///
-    /// map.entry("poneyland")
+    /// map.entry(&mut arena, "poneyland")
     ///    .and_modify(|e| { *e += 1 })
     ///    .or_insert(42);
-    /// assert_eq!(map["poneyland"], 43);
+    /// assert_eq!(map.get(&arena, "poneyland"), Some(&43));
+    ///
+    /// map.drop(&mut arena);
     /// ```
     pub fn and_modify<F>(self, f: F) -> Self
     where
@@ -207,12 +218,14 @@ impl<'a, K: Ord, V: Default> Entry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut map: BTreeMap<&str, Option<usize>> = BTreeMap::new();
-    /// map.entry("poneyland").or_default();
+    /// let mut arena = Arena::new();
+    /// let mut map: BTreeMap<&str, Option<usize>> = BTreeMap::new(&arena);
+    /// map.entry(&mut arena, "poneyland").or_default();
     ///
-    /// assert_eq!(map["poneyland"], None);
+    /// assert_eq!(map.get(&arena, "poneyland"), Some(&None));
+    /// map.drop(&mut arena);
     /// ```
     pub fn or_default(self) -> &'a mut V {
         match self {
@@ -229,10 +242,12 @@ impl<'a, K: Ord, V> VacantEntry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new();
-    /// assert_eq!(map.entry("poneyland").key(), &"poneyland");
+    /// let mut arena = Arena::new();
+    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new(&arena);
+    /// assert_eq!(map.entry(&mut arena, "poneyland").key(), &"poneyland");
+    /// map.drop(&mut arena);
     /// ```
     pub fn key(&self) -> &K {
         &self.key
@@ -243,14 +258,16 @@ impl<'a, K: Ord, V> VacantEntry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeMap;
-    /// use std::collections::btree_map::Entry;
+    /// use arena_btree::{Arena, BTreeMap};
+    /// use arena_btree::map::Entry;
     ///
-    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new();
+    /// let mut arena = Arena::new();
+    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new(&arena);
     ///
-    /// if let Entry::Vacant(v) = map.entry("poneyland") {
+    /// if let Entry::Vacant(v) = map.entry(&mut arena, "poneyland") {
     ///     v.into_key();
     /// }
+    /// map.drop(&mut arena);
     /// ```
     pub fn into_key(self) -> K {
         self.key
@@ -262,15 +279,17 @@ impl<'a, K: Ord, V> VacantEntry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeMap;
-    /// use std::collections::btree_map::Entry;
+    /// use arena_btree::{Arena, BTreeMap};
+    /// use arena_btree::map::Entry;
     ///
-    /// let mut map: BTreeMap<&str, u32> = BTreeMap::new();
+    /// let mut arena = Arena::new();
+    /// let mut map: BTreeMap<&str, u32> = BTreeMap::new(&arena);
     ///
-    /// if let Entry::Vacant(o) = map.entry("poneyland") {
+    /// if let Entry::Vacant(o) = map.entry(&mut arena, "poneyland") {
     ///     o.insert(37);
     /// }
-    /// assert_eq!(map["poneyland"], 37);
+    /// assert_eq!(map.get(&arena, "poneyland"), Some(&37));
+    /// map.drop(&mut arena);
     /// ```
     pub fn insert(mut self, value: V) -> &'a mut V {
         let out_ptr = match self.handle {
@@ -315,11 +334,13 @@ impl<'a, K: Ord, V> OccupiedEntry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new();
-    /// map.entry("poneyland").or_insert(12);
-    /// assert_eq!(map.entry("poneyland").key(), &"poneyland");
+    /// let mut arena = Arena::new();
+    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new(&arena);
+    /// map.entry(&mut arena, "poneyland").or_insert(12);
+    /// assert_eq!(map.entry(&mut arena, "poneyland").key(), &"poneyland");
+    /// map.drop(&mut arena);
     /// ```
     #[must_use]
     pub fn key(&self) -> &K {
@@ -331,19 +352,20 @@ impl<'a, K: Ord, V> OccupiedEntry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeMap;
-    /// use std::collections::btree_map::Entry;
+    /// use arena_btree::{Arena, BTreeMap};
+    /// use arena_btree::map::Entry;
     ///
-    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new();
-    /// map.entry("poneyland").or_insert(12);
+    /// let mut arena = Arena::new();
+    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new(&arena);
+    /// map.entry(&mut arena, "poneyland").or_insert(12);
     ///
-    /// if let Entry::Occupied(o) = map.entry("poneyland") {
+    /// if let Entry::Occupied(o) = map.entry(&mut arena, "poneyland") {
     ///     // We delete the entry from the map.
     ///     o.remove_entry();
     /// }
     ///
-    /// // If now try to get the value, it will panic:
-    /// // println!("{}", map["poneyland"]);
+    /// assert!(map.get(&arena, "poneyland").is_none());
+    /// map.drop(&mut arena);
     /// ```
     pub fn remove_entry(self) -> (K, V) {
         self.remove_kv()
@@ -354,15 +376,18 @@ impl<'a, K: Ord, V> OccupiedEntry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeMap;
-    /// use std::collections::btree_map::Entry;
+    /// use arena_btree::{Arena, BTreeMap};
+    /// use arena_btree::map::Entry;
     ///
-    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new();
-    /// map.entry("poneyland").or_insert(12);
+    /// let mut arena = Arena::new();
+    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new(&arena);
+    /// map.entry(&mut arena, "poneyland").or_insert(12);
     ///
-    /// if let Entry::Occupied(o) = map.entry("poneyland") {
+    /// if let Entry::Occupied(o) = map.entry(&mut arena, "poneyland") {
     ///     assert_eq!(o.get(), &12);
     /// }
+    ///
+    /// map.drop(&mut arena);
     /// ```
     #[must_use]
     pub fn get(&self) -> &V {
@@ -379,21 +404,23 @@ impl<'a, K: Ord, V> OccupiedEntry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeMap;
-    /// use std::collections::btree_map::Entry;
+    /// use arena_btree::{Arena, BTreeMap};
+    /// use arena_btree::map::Entry;
     ///
-    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new();
-    /// map.entry("poneyland").or_insert(12);
+    /// let mut arena = Arena::new();
+    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new(&arena);
+    /// map.entry(&mut arena, "poneyland").or_insert(12);
     ///
-    /// assert_eq!(map["poneyland"], 12);
-    /// if let Entry::Occupied(mut o) = map.entry("poneyland") {
+    /// assert_eq!(map.get(&arena, "poneyland"), Some(&12));
+    /// if let Entry::Occupied(mut o) = map.entry(&mut arena, "poneyland") {
     ///     *o.get_mut() += 10;
     ///     assert_eq!(*o.get(), 22);
     ///
     ///     // We can use the same Entry multiple times.
     ///     *o.get_mut() += 2;
     /// }
-    /// assert_eq!(map["poneyland"], 24);
+    /// assert_eq!(map.get(&arena, "poneyland"), Some(&24));
+    /// map.drop(&mut arena);
     /// ```
     pub fn get_mut(&mut self) -> &mut V {
         self.handle.kv_mut(self.arena).1
@@ -408,17 +435,19 @@ impl<'a, K: Ord, V> OccupiedEntry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeMap;
-    /// use std::collections::btree_map::Entry;
+    /// use arena_btree::{Arena, BTreeMap};
+    /// use arena_btree::map::Entry;
     ///
-    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new();
-    /// map.entry("poneyland").or_insert(12);
+    /// let mut arena = Arena::new();
+    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new(&arena);
+    /// map.entry(&mut arena, "poneyland").or_insert(12);
     ///
-    /// assert_eq!(map["poneyland"], 12);
-    /// if let Entry::Occupied(o) = map.entry("poneyland") {
+    /// assert_eq!(map.get(&arena, "poneyland"), Some(&12));
+    /// if let Entry::Occupied(o) = map.entry(&mut arena, "poneyland") {
     ///     *o.into_mut() += 10;
     /// }
-    /// assert_eq!(map["poneyland"], 22);
+    /// assert_eq!(map.get(&arena, "poneyland"), Some(&22));
+    /// map.drop(&mut arena);
     /// ```
     #[must_use = "`self` will be dropped if the result is not used"]
     pub fn into_mut(self) -> &'a mut V {
@@ -431,16 +460,18 @@ impl<'a, K: Ord, V> OccupiedEntry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeMap;
-    /// use std::collections::btree_map::Entry;
+    /// use arena_btree::{Arena, BTreeMap};
+    /// use arena_btree::map::Entry;
     ///
-    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new();
-    /// map.entry("poneyland").or_insert(12);
+    /// let mut arena = Arena::new();
+    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new(&arena);
+    /// map.entry(&mut arena, "poneyland").or_insert(12);
     ///
-    /// if let Entry::Occupied(mut o) = map.entry("poneyland") {
+    /// if let Entry::Occupied(mut o) = map.entry(&mut arena, "poneyland") {
     ///     assert_eq!(o.insert(15), 12);
     /// }
-    /// assert_eq!(map["poneyland"], 15);
+    /// assert_eq!(map.get(&arena, "poneyland"), Some(&15));
+    /// map.drop(&mut arena);
     /// ```
     pub fn insert(&mut self, value: V) -> V {
         mem::replace(self.get_mut(), value)
@@ -451,17 +482,18 @@ impl<'a, K: Ord, V> OccupiedEntry<'a, K, V> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeMap;
-    /// use std::collections::btree_map::Entry;
+    /// use arena_btree::{Arena, BTreeMap};
+    /// use arena_btree::map::Entry;
     ///
-    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new();
-    /// map.entry("poneyland").or_insert(12);
+    /// let mut arena = Arena::new();
+    /// let mut map: BTreeMap<&str, usize> = BTreeMap::new(&arena);
+    /// map.entry(&mut arena, "poneyland").or_insert(12);
     ///
-    /// if let Entry::Occupied(o) = map.entry("poneyland") {
+    /// if let Entry::Occupied(o) = map.entry(&mut arena, "poneyland") {
     ///     assert_eq!(o.remove(), 12);
     /// }
-    /// // If we try to get "poneyland"'s value, it'll panic:
-    /// // println!("{}", map["poneyland"]);
+    ///
+    /// assert!(map.get(&arena, "poneyland").is_none());
     /// ```
     pub fn remove(self) -> V {
         self.remove_kv().1

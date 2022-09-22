@@ -17,6 +17,8 @@ fn test_clone_eq() {
 
     let clone = m.clone(&mut arena);
     assert!(clone.eq(&arena, &m));
+    clone.drop(&mut arena);
+    m.drop(&mut arena);
 }
 
 #[test]
@@ -49,6 +51,7 @@ fn test_iter_min_max() {
     // assert_eq!(a.symmetric_difference(&BTreeSet::new()).max(), Some(&2));
     // assert_eq!(a.union(&a).min(), Some(&1));
     // assert_eq!(a.union(&a).max(), Some(&2));
+    a.drop(&mut arena);
 }
 
 fn check<F>(a: &[i32], b: &[i32], expected: &[i32], f: F)
@@ -75,6 +78,8 @@ where
         true
     });
     assert_eq!(i, expected.len());
+    set_a.drop(&mut arena);
+    set_b.drop(&mut arena);
 }
 
 // This test uses unstable methods we removed.
@@ -387,6 +392,7 @@ fn test_retain() {
     assert!(set.contains(&arena, &2));
     assert!(set.contains(&arena, &4));
     assert!(set.contains(&arena, &6));
+    set.drop(&mut arena);
 }
 
 #[test]
@@ -399,6 +405,8 @@ fn test_drain_filter() {
     y.drain_filter(&mut arena, |_| false);
     assert_eq!(x.len(), 0);
     assert_eq!(y.len(), 1);
+    x.drop(&mut arena);
+    y.drop(&mut arena);
 }
 
 #[test]
@@ -438,7 +446,7 @@ fn test_drain_filter_pred_panic_leak() {
     catch_unwind(AssertUnwindSafe(|| {
         drop(set.drain_filter(&mut arena, |dummy| dummy.query(true)))
     }))
-    .ok();
+    .unwrap_err();
 
     assert_eq!(a.queried(), 1);
     assert_eq!(b.queried(), 1);
@@ -460,6 +468,7 @@ fn test_clear() {
 
     x.clear(&mut arena);
     assert!(x.is_empty());
+    x.drop(&mut arena);
 }
 #[test]
 fn test_remove() {
@@ -481,6 +490,7 @@ fn test_remove() {
     assert_eq!(x.remove(&mut arena, &4), true);
     assert_eq!(x.remove(&mut arena, &4), false);
     assert!(x.is_empty());
+    x.drop(&mut arena);
 }
 
 #[test]
@@ -503,6 +513,9 @@ fn test_zip() {
     assert_eq!(z.next().unwrap(), (&5, &("bar")));
     assert_eq!(z.next().unwrap(), (&11, &("foo")));
     assert!(z.next().is_none());
+
+    x.drop(&mut arena_x);
+    y.drop(&mut arena_y);
 }
 
 #[test]
@@ -515,6 +528,7 @@ fn test_from_iter() {
     for x in &xs {
         assert!(set.contains(&arena, x));
     }
+    set.drop(&mut arena);
 }
 
 #[test]
@@ -530,6 +544,8 @@ fn test_show() {
 
     // assert_eq!(set_str, "{1, 2}");
     // assert_eq!(format!("{empty:?}"), "{}");
+    set.drop(&mut arena);
+    empty.drop(&mut arena);
 }
 
 // #[test]
@@ -607,6 +623,8 @@ fn test_recovery() {
     assert_eq!(s.take(&mut arena, &Foo("a", 1)), None);
 
     assert_eq!(s.iter(&arena).next(), None);
+
+    s.drop(&mut arena);
 }
 
 // Don't know how to prevent arenas from making this stuff invariant.
@@ -763,7 +781,9 @@ fn test_ord_absence() {
     }
 
     fn set_clone<K: Clone>(arena: &mut SetArena<K>, mut set: BTreeSet<K>) {
-        set = set.clone(arena);
+        let clone = set.clone(arena);
+        set.drop(arena);
+        clone.drop(arena);
     }
 
     #[derive(Debug, Clone)]
@@ -894,6 +914,8 @@ fn from_array() {
     let set = BTreeSet::from_iter(&mut arena, [1, 2, 3, 4]);
     let unordered_duplicates = BTreeSet::from_iter(&mut arena, [4, 1, 4, 3, 2]);
     assert!(set.eq(&arena, &unordered_duplicates));
+    set.drop(&mut arena);
+    unordered_duplicates.drop(&mut arena);
 }
 
 #[should_panic(expected = "range start is greater than range end in BTree{Set,Map}")]

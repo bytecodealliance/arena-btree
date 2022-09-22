@@ -42,48 +42,136 @@ pub type SetArena<T> = Arena<T, SetValZST>;
 /// # Examples
 ///
 /// ```
-/// use std::collections::BTreeSet;
+/// use arena_btree::{SetArena, BTreeSet};
 ///
 /// // Type inference lets us omit an explicit type signature (which
 /// // would be `BTreeSet<&str>` in this example).
-/// let mut books = BTreeSet::new();
+/// let mut arena = SetArena::new();
+/// let mut books = BTreeSet::new(&arena);
 ///
 /// // Add some books.
-/// books.insert("A Dance With Dragons");
-/// books.insert("To Kill a Mockingbird");
-/// books.insert("The Odyssey");
-/// books.insert("The Great Gatsby");
+/// books.insert(&mut arena, "A Dance With Dragons");
+/// books.insert(&mut arena, "To Kill a Mockingbird");
+/// books.insert(&mut arena, "The Odyssey");
+/// books.insert(&mut arena, "The Great Gatsby");
 ///
 /// // Check for a specific one.
-/// if !books.contains("The Winds of Winter") {
+/// if !books.contains(&arena, "The Winds of Winter") {
 ///     println!("We have {} books, but The Winds of Winter ain't one.",
 ///              books.len());
 /// }
 ///
 /// // Remove a book.
-/// books.remove("The Odyssey");
+/// books.remove(&mut arena, "The Odyssey");
 ///
 /// // Iterate over everything.
-/// for book in &books {
+/// for book in books.iter(&arena) {
 ///     println!("{book}");
 /// }
+///
+/// // Drop the set entries and return their slots to the arena's free list.
+/// books.drop(&mut arena);
 /// ```
 ///
 /// A `BTreeSet` with a known list of items can be initialized from an array:
 ///
 /// ```
-/// use std::collections::BTreeSet;
+/// use arena_btree::{SetArena, BTreeSet};
 ///
-/// let set = BTreeSet::from([1, 2, 3]);
+/// let mut arena = SetArena::new();
+/// let set = BTreeSet::from_iter(&mut arena, [1, 2, 3]);
+///
+/// set.drop(&mut arena);
+/// ```
+///
+/// Because the entries in the set live in an external arena, dropping the set
+/// does not drop the entries or return their slots to the arena's free
+/// list. You must manually call [`my_set.drop(&mut
+/// arena)`][crate::BTreeSet::drop] to drop the entries and return them to the
+/// arena's free list. See the documentation for
+/// [`BTreeSet::drop`][crate::BTreeSet::drop] for more details.
+///
+/// ```
+/// use arena_btree::{SetArena, BTreeSet};
+///
+/// let mut arena = SetArena::new();
+/// let mut set = BTreeSet::new(&arena);
+///
+/// set.insert(&mut arena, vec![1, 2, 3]);
+/// set.insert(&mut arena, vec![4, 5, 6]);
+/// set.insert(&mut arena, vec![7, 8, 9]);
+///
+/// // Free the heap allocations associated with each `Vec` value and return
+/// // the entry slots to the arena's free list.
+/// set.drop(&mut arena);
+/// ```
+///
+/// Finally, using a `BTreeSet` with the wrong arena will panic:
+///
+/// ```should_panic
+/// use arena_btree::{SetArena, BTreeSet};
+///
+/// let mut a = SetArena::new();
+/// let mut b = SetArena::new();
+///
+/// // Create a set associated with arena `a`.
+/// let mut set = BTreeSet::new(&a);
+///
+/// // Inserting with `a` works fine.
+/// set.insert(&mut a, "okay");
+///
+/// // But trying to insert with `b` will panic!
+/// set.insert(&mut b, "uh oh!");
 /// ```
 pub struct BTreeSet<T> {
     map: BTreeMap<T, SetValZST>,
 }
 
 impl<T> BTreeSet<T> {
-    /// TODO FITZGEN
+    /// Drop the entries in this set and return their slots to the arena's free
+    /// list.
+    ///
+    /// Because the entries live external to this set, in the arena,
+    /// `drop(my_set)` cannot call `drop` on each of the set's entries or return
+    /// their slots to the arena's free list. Instead you must call this method.
+    ///
+    /// Failure to call this method will leak any resources that `K` and `V`
+    /// manage (such as the underlying heap allocation for a `Vec`) as well as
+    /// leak arena slots since the slots won't be returned to the arena's free
+    /// list.
+    ///
+    /// Leaking can be acceptable in some situations, particularly if `K` and
+    /// `V` have trivial `Drop` implementations (as determined by
+    /// [`std::mem::needs_drop`][std::mem::needs_drop] returning
+    /// `false`). Perhaps you do not intend to use the associated arena again
+    /// and returning the set's entry slots to the arena's free list is simply
+    /// wasted effort? In these scenarios, call
+    /// [`my_set.forget()`][crate::BTreeSet::forget] instead of
+    /// `my_set.drop(&mut arena)`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use arena_btree::{SetArena, BTreeSet};
+    ///
+    /// let mut arena = SetArena::new();
+    /// let mut set = BTreeSet::new(&arena);
+    ///
+    /// set.insert(&mut arena, vec![1, 2, 3]);
+    /// set.insert(&mut arena, vec![4, 5, 6]);
+    /// set.insert(&mut arena, vec![7, 8, 9]);
+    ///
+    /// // Free the heap allocations associated with each `Vec` value and return
+    /// // the entry slots to the arena's free list.
+    /// set.drop(&mut arena);
+    /// ```
     pub fn drop(self, arena: &mut SetArena<T>) {
         self.map.drop(arena);
+    }
+
+    /// Leak this set and its entries' slots in the arena.
+    pub fn forget(self) {
+        self.map.forget()
     }
 }
 
@@ -332,9 +420,11 @@ impl<T> BTreeSet<T> {
     ///
     /// ```
     /// # #![allow(unused_mut)]
-    /// use std::collections::BTreeSet;
+    /// use arena_btree::{SetArena, BTreeSet};
     ///
-    /// let mut set: BTreeSet<i32> = BTreeSet::new();
+    /// let mut arena = SetArena::new();
+    /// let mut set: BTreeSet<i32> = BTreeSet::new(&arena);
+    /// set.drop(&mut arena);
     /// ```
     #[must_use]
     pub fn new(arena: &SetArena<T>) -> BTreeSet<T> {
@@ -360,17 +450,19 @@ impl<T> BTreeSet<T> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeSet;
+    /// use arena_btree::{SetArena, BTreeSet};
     /// use std::ops::Bound::Included;
     ///
-    /// let mut set = BTreeSet::new();
-    /// set.insert(3);
-    /// set.insert(5);
-    /// set.insert(8);
-    /// for &elem in set.range((Included(&4), Included(&8))) {
+    /// let mut arena = SetArena::new();
+    /// let mut set = BTreeSet::new(&arena);
+    /// set.insert(&mut arena, 3);
+    /// set.insert(&mut arena, 5);
+    /// set.insert(&mut arena, 8);
+    /// for &elem in set.range(&arena, (Included(&4), Included(&8))) {
     ///     println!("{elem}");
     /// }
-    /// assert_eq!(Some(&5), set.range(4..).next());
+    /// assert_eq!(Some(&5), set.range(&arena, 4..).next());
+    /// set.drop(&mut arena);
     /// ```
     pub fn range<'a, K: ?Sized, R>(&'a self, arena: &'a SetArena<T>, range: R) -> Range<'a, T>
     where
@@ -390,7 +482,7 @@ impl<T> BTreeSet<T> {
     // /// # Examples
     // ///
     // /// ```
-    // /// use std::collections::BTreeSet;
+    // /// use arena_btree::BTreeSet;
     // ///
     // /// let mut a = BTreeSet::new();
     // /// a.insert(1);
@@ -457,7 +549,7 @@ impl<T> BTreeSet<T> {
     // /// # Examples
     // ///
     // /// ```
-    // /// use std::collections::BTreeSet;
+    // /// use arena_btree::BTreeSet;
     // ///
     // /// let mut a = BTreeSet::new();
     // /// a.insert(1);
@@ -484,7 +576,7 @@ impl<T> BTreeSet<T> {
     // /// # Examples
     // ///
     // /// ```
-    // /// use std::collections::BTreeSet;
+    // /// use arena_btree::BTreeSet;
     // ///
     // /// let mut a = BTreeSet::new();
     // /// a.insert(1);
@@ -549,7 +641,7 @@ impl<T> BTreeSet<T> {
     // /// # Examples
     // ///
     // /// ```
-    // /// use std::collections::BTreeSet;
+    // /// use arena_btree::BTreeSet;
     // ///
     // /// let mut a = BTreeSet::new();
     // /// a.insert(1);
@@ -572,12 +664,14 @@ impl<T> BTreeSet<T> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeSet;
+    /// use arena_btree::{SetArena, BTreeSet};
     ///
-    /// let mut v = BTreeSet::new();
-    /// v.insert(1);
-    /// v.clear();
+    /// let mut arena = SetArena::new();
+    /// let mut v = BTreeSet::new(&arena);
+    /// v.insert(&mut arena, 1);
+    /// v.clear(&mut arena);
     /// assert!(v.is_empty());
+    /// v.drop(&mut arena);
     /// ```
     pub fn clear(&mut self, arena: &mut SetArena<T>) {
         self.map.clear(arena);
@@ -592,11 +686,13 @@ impl<T> BTreeSet<T> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeSet;
+    /// use arena_btree::{SetArena, BTreeSet};
     ///
-    /// let set = BTreeSet::from([1, 2, 3]);
-    /// assert_eq!(set.contains(&1), true);
-    /// assert_eq!(set.contains(&4), false);
+    /// let mut arena = SetArena::new();
+    /// let set = BTreeSet::from_iter(&mut arena, [1, 2, 3]);
+    /// assert_eq!(set.contains(&arena, &1), true);
+    /// assert_eq!(set.contains(&arena, &4), false);
+    /// set.drop(&mut arena);
     /// ```
     pub fn contains<Q: ?Sized>(&self, arena: &SetArena<T>, value: &Q) -> bool
     where
@@ -616,11 +712,13 @@ impl<T> BTreeSet<T> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeSet;
+    /// use arena_btree::{SetArena, BTreeSet};
     ///
-    /// let set = BTreeSet::from([1, 2, 3]);
-    /// assert_eq!(set.get(&2), Some(&2));
-    /// assert_eq!(set.get(&4), None);
+    /// let mut arena = SetArena::new();
+    /// let set = BTreeSet::from_iter(&mut arena, [1, 2, 3]);
+    /// assert_eq!(set.get(&arena, &2), Some(&2));
+    /// assert_eq!(set.get(&arena, &4), None);
+    /// set.drop(&mut arena);
     /// ```
     pub fn get<Q: ?Sized>(&self, arena: &SetArena<T>, value: &Q) -> Option<&T>
     where
@@ -636,7 +734,7 @@ impl<T> BTreeSet<T> {
     // /// # Examples
     // ///
     // /// ```
-    // /// use std::collections::BTreeSet;
+    // /// use arena_btree::BTreeSet;
     // ///
     // /// let a = BTreeSet::from([1, 2, 3]);
     // /// let mut b = BTreeSet::new();
@@ -661,7 +759,7 @@ impl<T> BTreeSet<T> {
     // /// # Examples
     // ///
     // /// ```
-    // /// use std::collections::BTreeSet;
+    // /// use arena_btree::BTreeSet;
     // ///
     // /// let sup = BTreeSet::from([1, 2, 3]);
     // /// let mut set = BTreeSet::new();
@@ -737,7 +835,7 @@ impl<T> BTreeSet<T> {
     // /// # Examples
     // ///
     // /// ```
-    // /// use std::collections::BTreeSet;
+    // /// use arena_btree::BTreeSet;
     // ///
     // /// let sub = BTreeSet::from([1, 2]);
     // /// let mut set = BTreeSet::new();
@@ -775,13 +873,16 @@ impl<T> BTreeSet<T> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeSet;
+    /// use arena_btree::{SetArena, BTreeSet};
     ///
-    /// let mut set = BTreeSet::new();
+    /// let mut arena = SetArena::new();
+    /// let mut set = BTreeSet::new(&arena);
     ///
-    /// assert_eq!(set.insert(2), true);
-    /// assert_eq!(set.insert(2), false);
+    /// assert_eq!(set.insert(&mut arena, 2), true);
+    /// assert_eq!(set.insert(&mut arena, 2), false);
     /// assert_eq!(set.len(), 1);
+    ///
+    /// set.drop(&mut arena);
     /// ```
     pub fn insert(&mut self, arena: &mut SetArena<T>, value: T) -> bool
     where
@@ -798,14 +899,16 @@ impl<T> BTreeSet<T> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeSet;
+    /// use arena_btree::{SetArena, BTreeSet};
     ///
-    /// let mut set = BTreeSet::new();
-    /// set.insert(Vec::<i32>::new());
+    /// let mut arena = SetArena::new();
+    /// let mut set = BTreeSet::new(&arena);
+    /// set.insert(&mut arena, Vec::<i32>::new());
     ///
-    /// assert_eq!(set.get(&[][..]).unwrap().capacity(), 0);
-    /// set.replace(Vec::with_capacity(10));
-    /// assert_eq!(set.get(&[][..]).unwrap().capacity(), 10);
+    /// assert_eq!(set.get(&arena, &[][..]).unwrap().capacity(), 0);
+    /// set.replace(&mut arena, Vec::with_capacity(10));
+    /// assert_eq!(set.get(&arena, &[][..]).unwrap().capacity(), 10);
+    /// set.drop(&mut arena);
     /// ```
     pub fn replace(&mut self, arena: &mut SetArena<T>, value: T) -> Option<T>
     where
@@ -824,13 +927,16 @@ impl<T> BTreeSet<T> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeSet;
+    /// use arena_btree::{SetArena, BTreeSet};
     ///
-    /// let mut set = BTreeSet::new();
+    /// let mut arena = SetArena::new();
+    /// let mut set = BTreeSet::new(&arena);
     ///
-    /// set.insert(2);
-    /// assert_eq!(set.remove(&2), true);
-    /// assert_eq!(set.remove(&2), false);
+    /// set.insert(&mut arena, 2);
+    /// assert_eq!(set.remove(&mut arena, &2), true);
+    /// assert_eq!(set.remove(&mut arena, &2), false);
+    ///
+    /// set.drop(&mut arena);
     /// ```
     pub fn remove<Q: ?Sized>(&mut self, arena: &mut SetArena<T>, value: &Q) -> bool
     where
@@ -850,11 +956,14 @@ impl<T> BTreeSet<T> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeSet;
+    /// use arena_btree::{SetArena, BTreeSet};
     ///
-    /// let mut set = BTreeSet::from([1, 2, 3]);
-    /// assert_eq!(set.take(&2), Some(2));
-    /// assert_eq!(set.take(&2), None);
+    /// let mut arena = SetArena::new();
+    /// let mut set = BTreeSet::from_iter(&mut arena, [1, 2, 3]);
+    /// assert_eq!(set.take(&mut arena, &2), Some(2));
+    /// assert_eq!(set.take(&mut arena, &2), None);
+    ///
+    /// set.drop(&mut arena);
     /// ```
     pub fn take<Q: ?Sized>(&mut self, arena: &mut SetArena<T>, value: &Q) -> Option<T>
     where
@@ -872,12 +981,14 @@ impl<T> BTreeSet<T> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeSet;
+    /// use arena_btree::{SetArena, BTreeSet};
     ///
-    /// let mut set = BTreeSet::from([1, 2, 3, 4, 5, 6]);
+    /// let mut arena = SetArena::new();
+    /// let mut set = BTreeSet::from_iter(&mut arena, [1, 2, 3, 4, 5, 6]);
     /// // Keep only the even numbers.
-    /// set.retain(|&k| k % 2 == 0);
-    /// assert!(set.iter().eq([2, 4, 6].iter()));
+    /// set.retain(&mut arena, |&k| k % 2 == 0);
+    /// assert!(set.iter(&arena).eq([2, 4, 6].iter()));
+    /// set.drop(&mut arena);
     /// ```
     pub fn retain<F>(&mut self, arena: &mut SetArena<T>, mut f: F)
     where
@@ -892,7 +1003,7 @@ impl<T> BTreeSet<T> {
     // /// # Examples
     // ///
     // /// ```
-    // /// use std::collections::BTreeSet;
+    // /// use arena_btree::BTreeSet;
     // ///
     // /// let mut a = BTreeSet::new();
     // /// a.insert(1);
@@ -930,7 +1041,7 @@ impl<T> BTreeSet<T> {
     // /// Basic usage:
     // ///
     // /// ```
-    // /// use std::collections::BTreeSet;
+    // /// use arena_btree::BTreeSet;
     // ///
     // /// let mut a = BTreeSet::new();
     // /// a.insert(1);
@@ -960,35 +1071,6 @@ impl<T> BTreeSet<T> {
     //     }
     // }
 
-    /// Creates an iterator that visits all elements in ascending order and
-    /// uses a closure to determine if an element should be removed.
-    ///
-    /// If the closure returns `true`, the element is removed from the set and
-    /// yielded. If the closure returns `false`, or panics, the element remains
-    /// in the set and will not be yielded.
-    ///
-    /// If the iterator is only partially consumed or not consumed at all, each
-    /// of the remaining elements is still subjected to the closure and removed
-    /// and dropped if it returns `true`.
-    ///
-    /// It is unspecified how many more elements will be subjected to the
-    /// closure if a panic occurs in the closure, or if a panic occurs while
-    /// dropping an element, or if the `DrainFilter` itself is leaked.
-    ///
-    /// # Examples
-    ///
-    /// Splitting a set into even and odd values, reusing the original set:
-    ///
-    /// ```
-    /// #![feature(btree_drain_filter)]
-    /// use std::collections::BTreeSet;
-    ///
-    /// let mut set: BTreeSet<i32> = (0..8).collect();
-    /// let evens: BTreeSet<_> = set.drain_filter(|v| v % 2 == 0).collect();
-    /// let odds = set;
-    /// assert_eq!(evens.into_iter().collect::<Vec<_>>(), vec![0, 2, 4, 6]);
-    /// assert_eq!(odds.into_iter().collect::<Vec<_>>(), vec![1, 3, 5, 7]);
-    /// ```
     pub(crate) fn drain_filter<'a, F>(
         &'a mut self,
         arena: &'a mut SetArena<T>,
@@ -1008,27 +1090,31 @@ impl<T> BTreeSet<T> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeSet;
+    /// use arena_btree::{SetArena, BTreeSet};
     ///
-    /// let set = BTreeSet::from([1, 2, 3]);
-    /// let mut set_iter = set.iter();
+    /// let mut arena = SetArena::new();
+    /// let set = BTreeSet::from_iter(&mut arena, [1, 2, 3]);
+    /// let mut set_iter = set.iter(&arena);
     /// assert_eq!(set_iter.next(), Some(&1));
     /// assert_eq!(set_iter.next(), Some(&2));
     /// assert_eq!(set_iter.next(), Some(&3));
     /// assert_eq!(set_iter.next(), None);
+    /// set.drop(&mut arena);
     /// ```
     ///
     /// Values returned by the iterator are returned in ascending order:
     ///
     /// ```
-    /// use std::collections::BTreeSet;
+    /// use arena_btree::{SetArena, BTreeSet};
     ///
-    /// let set = BTreeSet::from([3, 1, 2]);
-    /// let mut set_iter = set.iter();
+    /// let mut arena = SetArena::new();
+    /// let set = BTreeSet::from_iter(&mut arena, [3, 1, 2]);
+    /// let mut set_iter = set.iter(&arena);
     /// assert_eq!(set_iter.next(), Some(&1));
     /// assert_eq!(set_iter.next(), Some(&2));
     /// assert_eq!(set_iter.next(), Some(&3));
     /// assert_eq!(set_iter.next(), None);
+    /// set.drop(&mut arena);
     /// ```
     pub fn iter<'a>(&'a self, arena: &'a SetArena<T>) -> Iter<'a, T> {
         Iter {
@@ -1041,12 +1127,14 @@ impl<T> BTreeSet<T> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeSet;
+    /// use arena_btree::{SetArena, BTreeSet};
     ///
-    /// let mut v = BTreeSet::new();
+    /// let mut arena = SetArena::new();
+    /// let mut v = BTreeSet::new(&arena);
     /// assert_eq!(v.len(), 0);
-    /// v.insert(1);
+    /// v.insert(&mut arena, 1);
     /// assert_eq!(v.len(), 1);
+    /// v.drop(&mut arena);
     /// ```
     #[must_use]
     pub const fn len(&self) -> usize {
@@ -1058,12 +1146,14 @@ impl<T> BTreeSet<T> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeSet;
+    /// use arena_btree::{SetArena, BTreeSet};
     ///
-    /// let mut v = BTreeSet::new();
+    /// let mut arena = SetArena::new();
+    /// let mut v = BTreeSet::new(&arena);
     /// assert!(v.is_empty());
-    /// v.insert(1);
+    /// v.insert(&mut arena, 1);
     /// assert!(!v.is_empty());
+    /// v.drop(&mut arena);
     /// ```
     #[must_use]
     pub const fn is_empty(&self) -> bool {
@@ -1103,14 +1193,15 @@ impl<T> BTreeSet<T> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeSet;
+    /// use arena_btree::{SetArena, BTreeSet};
     ///
-    /// let set = BTreeSet::from([1, 2, 3, 4]);
+    /// let mut arena = SetArena::new();
+    /// let set = BTreeSet::from_iter(&mut arena, [1, 2, 3, 4]);
     ///
-    /// let v: Vec<_> = set.into_iter().collect();
+    /// let v: Vec<_> = set.into_iter(&mut arena).collect();
     /// assert_eq!(v, [1, 2, 3, 4]);
     /// ```
-    fn into_iter<'a>(self, arena: &'a mut SetArena<T>) -> IntoIter<'a, T> {
+    pub fn into_iter<'a>(self, arena: &'a mut SetArena<T>) -> IntoIter<'a, T> {
         IntoIter {
             iter: self.map.into_iter(arena),
         }
@@ -1201,7 +1292,7 @@ impl<T: Ord> BTreeSet<T> {
 //     /// # Examples
 //     ///
 //     /// ```
-//     /// use std::collections::BTreeSet;
+//     /// use arena_btree::BTreeSet;
 //     ///
 //     /// let a = BTreeSet::from([1, 2, 3]);
 //     /// let b = BTreeSet::from([3, 4, 5]);
@@ -1222,7 +1313,7 @@ impl<T: Ord> BTreeSet<T> {
 //     /// # Examples
 //     ///
 //     /// ```
-//     /// use std::collections::BTreeSet;
+//     /// use arena_btree::BTreeSet;
 //     ///
 //     /// let a = BTreeSet::from([1, 2, 3]);
 //     /// let b = BTreeSet::from([2, 3, 4]);
@@ -1246,7 +1337,7 @@ impl<T: Ord> BTreeSet<T> {
 //     /// # Examples
 //     ///
 //     /// ```
-//     /// use std::collections::BTreeSet;
+//     /// use arena_btree::BTreeSet;
 //     ///
 //     /// let a = BTreeSet::from([1, 2, 3]);
 //     /// let b = BTreeSet::from([2, 3, 4]);
@@ -1267,7 +1358,7 @@ impl<T: Ord> BTreeSet<T> {
 //     /// # Examples
 //     ///
 //     /// ```
-//     /// use std::collections::BTreeSet;
+//     /// use arena_btree::BTreeSet;
 //     ///
 //     /// let a = BTreeSet::from([1, 2, 3]);
 //     /// let b = BTreeSet::from([3, 4, 5]);

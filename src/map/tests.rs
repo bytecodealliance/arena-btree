@@ -191,6 +191,7 @@ fn test_check_ord_chaos() {
     );
     gov.flip();
     map.check(&arena);
+    map.drop(&mut arena);
 }
 
 // Ensures the testing infrastructure doesn't always mind order violations.
@@ -204,6 +205,7 @@ fn test_check_invariants_ord_chaos() {
     );
     gov.flip();
     map.check_invariants(&arena);
+    map.drop(&mut arena);
 }
 
 // This test uses unstable methods that we removed.
@@ -439,6 +441,7 @@ where
         assert_eq!(*v, T::try_from(size + i + 1).unwrap());
     }
     map.check(&arena);
+    map.drop(&mut arena);
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -483,6 +486,7 @@ fn test_values_mut() {
     let mut a = BTreeMap::from_iter(&mut arena, (0..MIN_INSERTS_HEIGHT_2).map(|i| (i, i)));
     test_all_refs(&mut 13, a.values_mut(&arena));
     a.check(&arena);
+    a.drop(&mut arena);
 }
 
 #[test]
@@ -518,6 +522,7 @@ fn test_iter_entering_root_twice() {
     assert_eq!(it.next(), None);
     assert_eq!(it.next_back(), None);
     map.check(&arena);
+    map.drop(&mut arena);
 }
 
 #[test]
@@ -534,6 +539,7 @@ fn test_iter_descending_to_same_node_twice() {
     // Perform mutable access.
     *front.1 = 42;
     map.check(&arena);
+    map.drop(&mut arena);
 }
 
 #[test]
@@ -600,6 +606,7 @@ fn test_iter_min_max() {
     assert_eq!(a.values_mut(&arena).min(), Some(&mut 24));
     assert_eq!(a.values_mut(&arena).max(), Some(&mut 42));
     a.check(&arena);
+    a.drop(&mut arena);
 }
 
 fn range_keys(
@@ -734,6 +741,8 @@ fn test_range_small() {
     assert_eq!(range_keys(&arena, &map, ..3), vec![1, 2]);
     assert_eq!(range_keys(&arena, &map, 3..), vec![3, 4]);
     assert_eq!(range_keys(&arena, &map, 2..=3), vec![2, 3]);
+
+    map.drop(&mut arena);
 }
 
 #[test]
@@ -778,6 +787,8 @@ fn test_range_height_1() {
             vec![root - 1, root]
         );
     }
+
+    map.drop(&mut arena);
 }
 
 #[test]
@@ -912,6 +923,8 @@ fn test_range_large() {
         vec![(&5, &5), (&6, &6), (&7, &7), (&8, &8)],
     );
     check(map.range(&arena, -1..=2), vec![(&1, &1), (&2, &2)]);
+
+    map.drop(&mut arena);
 }
 
 #[test]
@@ -920,6 +933,7 @@ fn test_range_inclusive_max_value() {
     let mut arena = Arena::new();
     let map = BTreeMap::from_iter(&mut arena, [(max, 0)]);
     assert_eq!(Vec::from_iter(map.range(&arena, max..=max)), &[(&max, &0)]);
+    map.drop(&mut arena);
 }
 
 #[test]
@@ -928,6 +942,7 @@ fn test_range_equal_empty_cases() {
     let map = BTreeMap::from_iter(&mut arena, (0..5).map(|i| (i, i)));
     assert_eq!(map.range(&arena, (Included(2), Excluded(2))).next(), None);
     assert_eq!(map.range(&arena, (Excluded(2), Included(2))).next(), None);
+    map.drop(&mut arena);
 }
 
 #[test]
@@ -936,6 +951,7 @@ fn test_range_equal_excluded() {
     let mut arena = Arena::new();
     let map = BTreeMap::from_iter(&mut arena, (0..5).map(|i| (i, i)));
     let _ = map.range(&arena, (Excluded(2), Excluded(2)));
+    map.drop(&mut arena);
 }
 
 #[test]
@@ -944,6 +960,7 @@ fn test_range_backwards_1() {
     let mut arena = Arena::new();
     let map = BTreeMap::from_iter(&mut arena, (0..5).map(|i| (i, i)));
     let _ = map.range(&arena, (Included(3), Included(2)));
+    map.drop(&mut arena);
 }
 
 #[test]
@@ -952,6 +969,7 @@ fn test_range_backwards_2() {
     let mut arena = Arena::new();
     let map = BTreeMap::from_iter(&mut arena, (0..5).map(|i| (i, i)));
     let _ = map.range(&arena, (Included(3), Excluded(2)));
+    map.drop(&mut arena);
 }
 
 #[test]
@@ -960,6 +978,7 @@ fn test_range_backwards_3() {
     let mut arena = Arena::new();
     let map = BTreeMap::from_iter(&mut arena, (0..5).map(|i| (i, i)));
     let _ = map.range(&arena, (Excluded(3), Included(2)));
+    map.drop(&mut arena);
 }
 
 #[test]
@@ -968,6 +987,7 @@ fn test_range_backwards_4() {
     let mut arena = Arena::new();
     let map = BTreeMap::from_iter(&mut arena, (0..5).map(|i| (i, i)));
     let _ = map.range(&arena, (Excluded(3), Excluded(2)));
+    map.drop(&mut arena);
 }
 
 #[test]
@@ -981,6 +1001,7 @@ fn test_range_finding_ill_order_in_map() {
     if Cyclic3::C < Cyclic3::A {
         let _ = map.range(&arena, Cyclic3::C..=Cyclic3::A);
     }
+    map.drop(&mut arena);
 }
 
 #[test]
@@ -1029,6 +1050,7 @@ fn test_range_finding_ill_order_in_range_ord() {
         (0..12).map(|i| (CompositeKey(i, EvilTwin(i)), ())),
     );
     let _ = map.range(&arena, EvilTwin(5)..=EvilTwin(7));
+    map.drop(&mut arena);
 }
 
 #[test]
@@ -1064,6 +1086,8 @@ fn test_range_1000() {
     test(&arena, &map, size, Unbounded, Included(&(size - 1)));
     test(&arena, &map, size, Included(&0), Unbounded);
     test(&arena, &map, size, Unbounded, Unbounded);
+
+    map.drop(&mut arena);
 }
 
 #[test]
@@ -1104,6 +1128,8 @@ fn test_range() {
             assert_eq!(pairs.next(), None);
         }
     }
+
+    map.drop(&mut arena);
 }
 
 #[test]
@@ -1129,6 +1155,7 @@ fn test_range_mut() {
         }
     }
     map.check(&arena);
+    map.drop(&mut arena);
 }
 
 #[should_panic(expected = "range start is greater than range end in BTree{Set,Map}")]
@@ -1177,6 +1204,7 @@ fn test_retain() {
     assert_eq!(*map.get(&arena, &2).unwrap(), 20);
     assert_eq!(*map.get(&arena, &4).unwrap(), 40);
     assert_eq!(*map.get(&arena, &6).unwrap(), 60);
+    map.drop(&mut arena);
 }
 
 mod test_drain_filter {
@@ -1191,6 +1219,7 @@ mod test_drain_filter {
         });
         assert_eq!(map.height(), None);
         map.check(&arena);
+        map.drop(&mut arena);
     }
 
     // Explicitly consumes the iterator, where most test cases drop it instantly.
@@ -1201,6 +1230,7 @@ mod test_drain_filter {
         let mut map = BTreeMap::from_iter(&mut arena, pairs);
         assert!(map.drain_filter(&mut arena, |_, _| false).eq(iter::empty()));
         map.check(&arena);
+        map.drop(&mut arena);
     }
 
     // Explicitly consumes the iterator, where most test cases drop it instantly.
@@ -1212,6 +1242,7 @@ mod test_drain_filter {
         assert!(map.drain_filter(&mut arena, |_, _| true).eq(pairs));
         assert!(map.is_empty());
         map.check(&arena);
+        map.drop(&mut arena);
     }
 
     // Explicitly consumes the iterator and modifies values through it.
@@ -1229,6 +1260,7 @@ mod test_drain_filter {
         assert!(map.keys(&arena).copied().eq(0..3));
         assert!(map.values(&arena).copied().eq(6..9));
         map.check(&arena);
+        map.drop(&mut arena);
     }
 
     // Explicitly consumes the iterator and modifies values through it.
@@ -1245,6 +1277,7 @@ mod test_drain_filter {
             .eq((0..3).map(|i| (i, i + 6))));
         assert!(map.is_empty());
         map.check(&arena);
+        map.drop(&mut arena);
     }
 
     #[test]
@@ -1255,6 +1288,7 @@ mod test_drain_filter {
         map.drain_filter(&mut arena, |_, _| false);
         assert!(map.keys(&arena).copied().eq(0..3));
         map.check(&arena);
+        map.drop(&mut arena);
     }
 
     #[test]
@@ -1266,6 +1300,7 @@ mod test_drain_filter {
             map.drain_filter(&mut arena, |i, _| *i == doomed);
             assert_eq!(map.len(), 2);
             map.check(&arena);
+            map.drop(&mut arena);
         }
     }
 
@@ -1278,6 +1313,7 @@ mod test_drain_filter {
             map.drain_filter(&mut arena, |i, _| *i != sacred);
             assert!(map.keys(&arena).copied().eq(sacred..=sacred));
             map.check(&arena);
+            map.drop(&mut arena);
         }
     }
 
@@ -1289,6 +1325,7 @@ mod test_drain_filter {
         map.drain_filter(&mut arena, |_, _| true);
         assert!(map.is_empty());
         map.check(&arena);
+        map.drop(&mut arena);
     }
 
     #[test]
@@ -1299,6 +1336,7 @@ mod test_drain_filter {
         map.drain_filter(&mut arena, |_, _| false);
         assert!(map.keys(&arena).copied().eq(0..node::CAPACITY));
         map.check(&arena);
+        map.drop(&mut arena);
     }
 
     #[test]
@@ -1310,6 +1348,7 @@ mod test_drain_filter {
             map.drain_filter(&mut arena, |i, _| *i == doomed);
             assert_eq!(map.len(), node::CAPACITY - 1);
             map.check(&arena);
+            map.drop(&mut arena);
         }
     }
 
@@ -1322,6 +1361,7 @@ mod test_drain_filter {
             map.drain_filter(&mut arena, |i, _| *i != sacred);
             assert!(map.keys(&arena).copied().eq(sacred..=sacred));
             map.check(&arena);
+            map.drop(&mut arena);
         }
     }
 
@@ -1333,6 +1373,7 @@ mod test_drain_filter {
         map.drain_filter(&mut arena, |_, _| true);
         assert!(map.is_empty());
         map.check(&arena);
+        map.drop(&mut arena);
     }
 
     #[test]
@@ -1342,6 +1383,7 @@ mod test_drain_filter {
         assert_eq!(map.drain_filter(&mut arena, |i, _| *i % 2 == 0).count(), 8);
         assert_eq!(map.len(), 8);
         map.check(&arena);
+        map.drop(&mut arena);
     }
 
     #[test]
@@ -1352,6 +1394,7 @@ mod test_drain_filter {
         map.drain_filter(&mut arena, |_, _| true);
         assert!(map.is_empty());
         map.check(&arena);
+        map.drop(&mut arena);
     }
 
     #[test]
@@ -1363,6 +1406,7 @@ mod test_drain_filter {
             map.drain_filter(&mut arena, |i, _| *i == doomed);
             assert_eq!(map.len(), MIN_INSERTS_HEIGHT_1 - 1);
             map.check(&arena);
+            map.drop(&mut arena);
         }
     }
 
@@ -1375,6 +1419,7 @@ mod test_drain_filter {
             map.drain_filter(&mut arena, |i, _| *i != sacred);
             assert!(map.keys(&arena).copied().eq(sacred..=sacred));
             map.check(&arena);
+            map.drop(&mut arena);
         }
     }
 
@@ -1387,6 +1432,7 @@ mod test_drain_filter {
             map.drain_filter(&mut arena, |i, _| *i == doomed);
             assert_eq!(map.len(), MIN_INSERTS_HEIGHT_2 - 1);
             map.check(&arena);
+            map.drop(&mut arena);
         }
     }
 
@@ -1399,6 +1445,7 @@ mod test_drain_filter {
             map.drain_filter(&mut arena, |i, _| *i != sacred);
             assert!(map.keys(&arena).copied().eq(sacred..=sacred));
             map.check(&arena);
+            map.drop(&mut arena);
         }
     }
 
@@ -1410,6 +1457,7 @@ mod test_drain_filter {
         map.drain_filter(&mut arena, |_, _| true);
         assert!(map.is_empty());
         map.check(&arena);
+        map.drop(&mut arena);
     }
 
     #[test]
@@ -1631,6 +1679,7 @@ fn test_entry() {
     assert_eq!(map.get(&arena, &10).unwrap(), &1000);
     assert_eq!(map.len(), 6);
     map.check(&arena);
+    map.drop(&mut arena);
 }
 
 // #[test]
@@ -1674,6 +1723,7 @@ fn test_zst() {
     assert_eq!(m.len(), 1);
     assert_eq!(m.iter(&arena).count(), 1);
     m.check(&arena);
+    m.drop(&mut arena)
 }
 
 // This test's only purpose is to ensure that zero-sized keys with nonsensical orderings
@@ -1711,6 +1761,7 @@ fn test_bad_zst() {
         m.insert(&mut arena, Bad, Bad);
     }
     m.check(&arena);
+    m.drop(&mut arena);
 }
 
 #[test]
@@ -1731,6 +1782,7 @@ fn test_clear() {
         map.check(&arena);
         assert_eq!(map.height(), None);
     }
+    map.drop(&mut arena);
 }
 
 #[test]
@@ -2216,8 +2268,10 @@ fn test_ord_absence() {
         }
     }
 
-    fn map_clone<K: Clone>(mut map: BTreeMap<K, ()>, arena: &mut Arena<K, ()>) {
-        map = map.clone(arena);
+    fn map_clone<K: Clone>(map: BTreeMap<K, ()>, arena: &mut Arena<K, ()>) {
+        let clone = map.clone(arena);
+        map.drop(arena);
+        clone.drop(arena);
     }
 
     #[derive(Debug, Clone)]
@@ -2246,6 +2300,7 @@ fn test_occupied_entry_key() {
     assert_eq!(a.len(), 1);
     assert_eq!(*a.get(&arena, key).unwrap(), value);
     a.check(&arena);
+    a.drop(&mut arena);
 }
 
 #[test]
@@ -2266,6 +2321,7 @@ fn test_vacant_entry_key() {
     assert_eq!(a.len(), 1);
     assert_eq!(*a.get(&arena, key).unwrap(), value);
     a.check(&arena);
+    a.drop(&mut arena);
 }
 
 #[test]
@@ -2297,6 +2353,7 @@ fn test_vacant_entry_no_insert() {
     assert_eq!(a.height(), Some(0));
     assert!(a.is_empty());
     a.check(&arena);
+    a.drop(&mut arena);
 }
 
 // This test uses unstable methods we removed.
@@ -2417,6 +2474,8 @@ fn test_get_key_value() {
     assert_eq!(map.len(), 2);
     assert_eq!(map.get_key_value(&arena, &3), None);
     assert_eq!(map.get_key_value(&arena, &2), Some((&2, &20)));
+
+    map.drop(&mut arena);
 }
 
 #[test]
@@ -2427,6 +2486,7 @@ fn test_insert_into_full_height_0() {
         let mut map = BTreeMap::from_iter(&mut arena, (0..size).map(|i| (i * 2 + 1, ())));
         assert!(map.insert(&mut arena, pos * 2, ()).is_none());
         map.check(&arena);
+        map.drop(&mut arena);
     }
 }
 
@@ -2772,6 +2832,7 @@ fn test_insert_remove_intertwined() {
         map.remove(&mut arena, &(0xFF - i));
     }
     map.check(&arena);
+    map.drop(&mut arena);
 }
 
 #[test]
@@ -2789,6 +2850,7 @@ fn test_insert_remove_intertwined_ord_chaos() {
         gov.flip();
     }
     map.check_invariants(&arena);
+    map.drop(&mut arena);
 }
 
 #[test]
@@ -2797,4 +2859,6 @@ fn from_array() {
     let map = BTreeMap::from_iter(&mut arena, [(1, 2), (3, 4)]);
     let unordered_duplicates = BTreeMap::from_iter(&mut arena, [(3, 4), (1, 2), (1, 2)]);
     assert!(map.eq(&arena, &unordered_duplicates));
+    map.drop(&mut arena);
+    unordered_duplicates.drop(&mut arena);
 }

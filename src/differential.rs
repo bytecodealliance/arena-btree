@@ -372,6 +372,7 @@ pub fn differential_test_map(
         assert_std_arena_maps_equal(&arena, &std_map, &arena_map)?;
     }
 
+    arena_map.drop(&mut arena);
     Ok(())
 }
 
@@ -421,6 +422,8 @@ mod tests {
             err.to_string(),
             "Found 1 differential error(s)!\n\n* arena map has extra entry that std map doesn't have: Key(7) -> Value(14)"
         );
+
+        arena_map.drop(&mut arena);
     }
 
     #[test]
@@ -434,6 +437,8 @@ mod tests {
             err.to_string(),
             "Found 1 differential error(s)!\n\n* arena map has extra entry that std map doesn't have: Key(3) -> Value(6)"
         );
+
+        arena_map.drop(&mut arena);
     }
 
     #[test]
@@ -448,6 +453,8 @@ mod tests {
             err.to_string(),
             "Found 1 differential error(s)!\n\n* arena map is missing entry that std map has: Key(7) -> Value(14)"
         );
+
+        arena_map.drop(&mut arena);
     }
 
     #[test]
@@ -462,6 +469,8 @@ mod tests {
             err.to_string(),
             "Found 1 differential error(s)!\n\n* arena map is missing entry that std map has: Key(3) -> Value(6)"
         );
+
+        arena_map.drop(&mut arena);
     }
 
     #[test]
@@ -475,6 +484,8 @@ mod tests {
             [(Key(3), Value(6)), (Key(5), Value(10)), (Key(7), Value(14))],
         );
         assert_std_arena_maps_equal(&arena, &std_map, &arena_map).unwrap();
+
+        arena_map.drop(&mut arena);
     }
 
     #[test]
@@ -502,5 +513,7 @@ mod tests {
              * arena map is missing entry that std map has: Key(3) -> Value(6)\n\
              * arena map has extra entry that std map doesn't have: Key(7) -> Value(14)"
         );
+
+        arena_map.drop(&mut arena);
     }
 }

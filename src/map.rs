@@ -77,56 +77,64 @@ pub(super) const MIN_LEN: usize = node::MIN_LEN_AFTER_SPLIT;
 /// # Examples
 ///
 /// ```
-/// use std::collections::BTreeMap;
+/// use arena_btree::{Arena, BTreeMap};
 ///
 /// // type inference lets us omit an explicit type signature (which
 /// // would be `BTreeMap<&str, &str>` in this example).
-/// let mut movie_reviews = BTreeMap::new();
+/// let mut arena = Arena::new();
+/// let mut movie_reviews = BTreeMap::new(&arena);
 ///
 /// // review some movies.
-/// movie_reviews.insert("Office Space",       "Deals with real issues in the workplace.");
-/// movie_reviews.insert("Pulp Fiction",       "Masterpiece.");
-/// movie_reviews.insert("The Godfather",      "Very enjoyable.");
-/// movie_reviews.insert("The Blues Brothers", "Eye lyked it a lot.");
+/// movie_reviews.insert(&mut arena, "Office Space",       "Deals with real issues in the workplace.");
+/// movie_reviews.insert(&mut arena, "Pulp Fiction",       "Masterpiece.");
+/// movie_reviews.insert(&mut arena, "The Godfather",      "Very enjoyable.");
+/// movie_reviews.insert(&mut arena, "The Blues Brothers", "Eye lyked it a lot.");
 ///
 /// // check for a specific one.
-/// if !movie_reviews.contains_key("Les Misérables") {
+/// if !movie_reviews.contains_key(&arena, "Les Misérables") {
 ///     println!("We've got {} reviews, but Les Misérables ain't one.",
 ///              movie_reviews.len());
 /// }
 ///
 /// // oops, this review has a lot of spelling mistakes, let's delete it.
-/// movie_reviews.remove("The Blues Brothers");
+/// movie_reviews.remove(&mut arena, "The Blues Brothers");
 ///
 /// // look up the values associated with some keys.
 /// let to_find = ["Up!", "Office Space"];
 /// for movie in &to_find {
-///     match movie_reviews.get(movie) {
+///     match movie_reviews.get(&arena, movie) {
 ///        Some(review) => println!("{movie}: {review}"),
 ///        None => println!("{movie} is unreviewed.")
 ///     }
 /// }
 ///
-/// // Look up the value for a key (will panic if the key is not found).
-/// println!("Movie review: {}", movie_reviews["Office Space"]);
-///
 /// // iterate over everything.
-/// for (movie, review) in &movie_reviews {
+/// for (movie, review) in movie_reviews.iter(&arena) {
 ///     println!("{movie}: \"{review}\"");
 /// }
+///
+/// // Drop the map entries and return them to the arena's free list.
+/// movie_reviews.drop(&mut arena);
 /// ```
 ///
 /// A `BTreeMap` with a known list of items can be initialized from an array:
 ///
 /// ```
-/// use std::collections::BTreeMap;
+/// use arena_btree::{Arena, BTreeMap};
 ///
-/// let solar_distance = BTreeMap::from([
-///     ("Mercury", 0.4),
-///     ("Venus", 0.7),
-///     ("Earth", 1.0),
-///     ("Mars", 1.5),
-/// ]);
+/// let mut arena = Arena::new();
+/// let solar_distance = BTreeMap::from_iter(
+///     &mut arena,
+///     [
+///         ("Mercury", 0.4),
+///         ("Venus", 0.7),
+///         ("Earth", 1.0),
+///         ("Mars", 1.5),
+///     ]
+/// );
+///
+/// // Drop the map entries and return them to the arena's free list.
+/// solar_distance.drop(&mut arena);
 /// ```
 ///
 /// `BTreeMap` implements an [`Entry API`], which allows for complex
@@ -135,11 +143,12 @@ pub(super) const MIN_LEN: usize = node::MIN_LEN_AFTER_SPLIT;
 /// [`Entry API`]: BTreeMap::entry
 ///
 /// ```
-/// use std::collections::BTreeMap;
+/// use arena_btree::{Arena, BTreeMap};
 ///
 /// // type inference lets us omit an explicit type signature (which
 /// // would be `BTreeMap<&str, u8>` in this example).
-/// let mut player_stats = BTreeMap::new();
+/// let mut arena = Arena::new();
+/// let mut player_stats = BTreeMap::new(&arena);
 ///
 /// fn random_stat_buff() -> u8 {
 ///     // could actually return some random value here - let's just return
@@ -148,18 +157,61 @@ pub(super) const MIN_LEN: usize = node::MIN_LEN_AFTER_SPLIT;
 /// }
 ///
 /// // insert a key only if it doesn't already exist
-/// player_stats.entry("health").or_insert(100);
+/// player_stats.entry(&mut arena, "health").or_insert(100);
 ///
 /// // insert a key using a function that provides a new value only if it
 /// // doesn't already exist
-/// player_stats.entry("defence").or_insert_with(random_stat_buff);
+/// player_stats.entry(&mut arena, "defence").or_insert_with(random_stat_buff);
 ///
 /// // update a key, guarding against the key possibly not being set
-/// let stat = player_stats.entry("attack").or_insert(100);
+/// let stat = player_stats.entry(&mut arena, "attack").or_insert(100);
 /// *stat += random_stat_buff();
 ///
 /// // modify an entry before an insert with in-place mutation
-/// player_stats.entry("mana").and_modify(|mana| *mana += 200).or_insert(100);
+/// player_stats.entry(&mut arena, "mana").and_modify(|mana| *mana += 200).or_insert(100);
+///
+/// // Drop the map entries and return them to the arena's free list.
+/// player_stats.drop(&mut arena);
+/// ```
+///
+/// Because the entries in the map live in an external arena, dropping the map
+/// does not drop the entries or return their slots to the arena's free
+/// list. You must manually call [`my_map.drop(&mut
+/// arena)`][crate::BTreeMap::drop] to drop the entries and return them to the
+/// arena's free list. See the documentation for
+/// [`BTreeMap::drop`][crate::BTreeMap::drop] for more details.
+///
+/// ```
+/// use arena_btree::{Arena, BTreeMap};
+///
+/// let mut arena = Arena::new();
+/// let mut map = BTreeMap::new(&arena);
+///
+/// map.insert(&mut arena, "a", vec![1, 2, 3]);
+/// map.insert(&mut arena, "b", vec![4, 5, 6]);
+/// map.insert(&mut arena, "c", vec![7, 8, 9]);
+///
+/// // Free the heap allocations associated with each `Vec` value and return
+/// // the entry slots to the arena's free list.
+/// map.drop(&mut arena);
+/// ```
+///
+/// Finally, using a `BTreeMap` with the wrong arena will panic:
+///
+/// ```should_panic
+/// use arena_btree::{Arena, BTreeMap};
+///
+/// let mut a = Arena::new();
+/// let mut b = Arena::new();
+///
+/// // Create a map associated with arena `a`.
+/// let mut map = BTreeMap::new(&a);
+///
+/// // Inserting with `a` works fine.
+/// map.insert(&mut a, "okay", 1);
+///
+/// // But trying to insert with `b` will panic!
+/// map.insert(&mut b, "uh oh!", 2);
 /// ```
 pub struct BTreeMap<K, V> {
     root: Option<Root<K, V>>,
@@ -571,12 +623,15 @@ impl<K, V> BTreeMap<K, V> {
     /// Basic usage:
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut map = BTreeMap::new();
+    /// let mut arena = Arena::new();
+    /// let mut map = BTreeMap::new(&arena);
     ///
     /// // entries can now be inserted into the empty map
-    /// map.insert(1, "a");
+    /// map.insert(&mut arena, 1, "a");
+    ///
+    /// map.drop(&mut arena);
     /// ```
     #[must_use]
     pub fn new(arena: &Arena<K, V>) -> BTreeMap<K, V> {
@@ -597,11 +652,12 @@ impl<K, V> BTreeMap<K, V> {
     /// Basic usage:
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut a = BTreeMap::new();
-    /// a.insert(1, "a");
-    /// a.clear();
+    /// let mut arena = Arena::new();
+    /// let mut a = BTreeMap::new(&arena);
+    /// a.insert(&mut arena, 1, "a");
+    /// a.clear(&mut arena);
     /// assert!(a.is_empty());
     /// ```
     pub fn clear(&mut self, arena: &mut Arena<K, V>) {
@@ -622,17 +678,52 @@ impl<K, V> BTreeMap<K, V> {
 impl<K, V> Drop for BTreeMap<K, V> {
     fn drop(&mut self) {
         debug_assert!(
-            self.dropped
-                || !(mem::needs_drop::<K>() || mem::needs_drop::<V>())
-                || std::thread::panicking(),
-            "BTreeMap will leak entries if you don't explicitly call `my_map.drop(&mut arena)`! If
-             you are okay with that, then call `std::mem::forget(my_map)`"
+            self.dropped || self.is_empty() || std::thread::panicking(),
+            "`arena_btree::BTreeMap` will leak entries if you don't explicitly call
+             `my_map.drop(&mut arena)`! If you are okay with leaking, then call
+             `my_map.forget()` instead."
         );
     }
 }
 
 impl<K, V> BTreeMap<K, V> {
-    /// TODO FITZGEN
+    /// Drop the entries in this map and return their slots to the arena's free
+    /// list.
+    ///
+    /// Because the entries live external to this map, in the arena,
+    /// `drop(my_map)` cannot call `drop` on each of the map's entries or return
+    /// their slots to the arena's free list. Instead you must call this method.
+    ///
+    /// Failure to call this method will leak any resources that `K` and `V`
+    /// manage (such as the underlying heap allocation for a `Vec`) as well as
+    /// leak arena slots since the slots won't be returned to the arena's free
+    /// list.
+    ///
+    /// Leaking can be acceptable in some situations, particularly if `K` and
+    /// `V` have trivial `Drop` implementations (as determined by
+    /// [`std::mem::needs_drop`][std::mem::needs_drop] returning
+    /// `false`). Perhaps you do not intend to use the associated arena again
+    /// and returning the map's entry slots to the arena's free list is simply
+    /// wasted effort? In these scenarios, call
+    /// [`my_map.forget()`][crate::BTreeMap::forget] instead of
+    /// `my_map.drop(&mut arena)`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use arena_btree::{Arena, BTreeMap};
+    ///
+    /// let mut arena = Arena::new();
+    /// let mut map = BTreeMap::new(&arena);
+    ///
+    /// map.insert(&mut arena, "a", vec![1, 2, 3]);
+    /// map.insert(&mut arena, "b", vec![4, 5, 6]);
+    /// map.insert(&mut arena, "c", vec![7, 8, 9]);
+    ///
+    /// // Free the heap allocations associated with each `Vec` value and return
+    /// // the entry slots to the arena's free list.
+    /// map.drop(&mut arena);
+    /// ```
     pub fn drop(mut self, arena: &mut Arena<K, V>) {
         assert_eq!(arena.id(), self.arena_id);
 
@@ -642,6 +733,11 @@ impl<K, V> BTreeMap<K, V> {
         }
 
         drop(self.into_iter(arena));
+    }
+
+    /// Leak this map and its entries' slots in the arena.
+    pub fn forget(self) {
+        mem::forget(self)
     }
 
     /// Returns a reference to the value corresponding to the key.
@@ -654,12 +750,15 @@ impl<K, V> BTreeMap<K, V> {
     /// Basic usage:
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut map = BTreeMap::new();
-    /// map.insert(1, "a");
-    /// assert_eq!(map.get(&1), Some(&"a"));
-    /// assert_eq!(map.get(&2), None);
+    /// let mut arena = Arena::new();
+    /// let mut map = BTreeMap::new(&arena);
+    /// map.insert(&mut arena, 1, "a");
+    /// assert_eq!(map.get(&arena, &1), Some(&"a"));
+    /// assert_eq!(map.get(&arena, &2), None);
+    ///
+    /// map.drop(&mut arena);
     /// ```
     pub fn get<Q: ?Sized>(&self, arena: &Arena<K, V>, key: &Q) -> Option<&V>
     where
@@ -682,12 +781,15 @@ impl<K, V> BTreeMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut map = BTreeMap::new();
-    /// map.insert(1, "a");
-    /// assert_eq!(map.get_key_value(&1), Some((&1, &"a")));
-    /// assert_eq!(map.get_key_value(&2), None);
+    /// let mut arena = Arena::new();
+    /// let mut map = BTreeMap::new(&arena);
+    /// map.insert(&mut arena, 1, "a");
+    /// assert_eq!(map.get_key_value(&arena, &1), Some((&1, &"a")));
+    /// assert_eq!(map.get_key_value(&arena, &2), None);
+    ///
+    /// map.drop(&mut arena);
     /// ```
     pub fn get_key_value<Q: ?Sized>(&self, arena: &Arena<K, V>, k: &Q) -> Option<(&K, &V)>
     where
@@ -712,12 +814,15 @@ impl<K, V> BTreeMap<K, V> {
     /// Basic usage:
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut map = BTreeMap::new();
-    /// map.insert(1, "a");
-    /// assert_eq!(map.contains_key(&1), true);
-    /// assert_eq!(map.contains_key(&2), false);
+    /// let mut arena = Arena::new();
+    /// let mut map = BTreeMap::new(&arena);
+    /// map.insert(&mut arena, 1, "a");
+    /// assert_eq!(map.contains_key(&arena, &1), true);
+    /// assert_eq!(map.contains_key(&arena, &2), false);
+    ///
+    /// map.drop(&mut arena);
     /// ```
     pub fn contains_key<Q: ?Sized>(&self, arena: &Arena<K, V>, key: &Q) -> bool
     where
@@ -738,14 +843,17 @@ impl<K, V> BTreeMap<K, V> {
     /// Basic usage:
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut map = BTreeMap::new();
-    /// map.insert(1, "a");
-    /// if let Some(x) = map.get_mut(&1) {
+    /// let mut arena = Arena::new();
+    /// let mut map = BTreeMap::new(&arena);
+    /// map.insert(&mut arena, 1, "a");
+    /// if let Some(x) = map.get_mut(&arena, &1) {
     ///     *x = "b";
     /// }
-    /// assert_eq!(map[&1], "b");
+    /// assert_eq!(map.get(&arena, &1), Some(&"b"));
+    ///
+    /// map.drop(&mut arena);
     /// ```
     // See `get` for implementation notes, this is basically a copy-paste with mut's added
     pub fn get_mut<Q: ?Sized>(&mut self, arena: &Arena<K, V>, key: &Q) -> Option<&mut V>
@@ -777,15 +885,18 @@ impl<K, V> BTreeMap<K, V> {
     /// Basic usage:
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut map = BTreeMap::new();
-    /// assert_eq!(map.insert(37, "a"), None);
+    /// let mut arena = Arena::new();
+    /// let mut map = BTreeMap::new(&arena);
+    /// assert_eq!(map.insert(&mut arena, 37, "a"), None);
     /// assert_eq!(map.is_empty(), false);
     ///
-    /// map.insert(37, "b");
-    /// assert_eq!(map.insert(37, "c"), Some("b"));
-    /// assert_eq!(map[&37], "c");
+    /// map.insert(&mut arena, 37, "b");
+    /// assert_eq!(map.insert(&mut arena, 37, "c"), Some("b"));
+    /// assert_eq!(map.get(&arena, &37), Some(&"c"));
+    ///
+    /// map.drop(&mut arena);
     /// ```
     pub fn insert(&mut self, arena: &mut Arena<K, V>, key: K, value: V) -> Option<V>
     where
@@ -812,12 +923,13 @@ impl<K, V> BTreeMap<K, V> {
     /// Basic usage:
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut map = BTreeMap::new();
-    /// map.insert(1, "a");
-    /// assert_eq!(map.remove(&1), Some("a"));
-    /// assert_eq!(map.remove(&1), None);
+    /// let mut arena = Arena::new();
+    /// let mut map = BTreeMap::new(&arena);
+    /// map.insert(&mut arena, 1, "a");
+    /// assert_eq!(map.remove(&mut arena, &1), Some("a"));
+    /// assert_eq!(map.remove(&mut arena, &1), None);
     /// ```
     pub fn remove<Q: ?Sized>(&mut self, arena: &mut Arena<K, V>, key: &Q) -> Option<V>
     where
@@ -838,12 +950,13 @@ impl<K, V> BTreeMap<K, V> {
     /// Basic usage:
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut map = BTreeMap::new();
-    /// map.insert(1, "a");
-    /// assert_eq!(map.remove_entry(&1), Some((1, "a")));
-    /// assert_eq!(map.remove_entry(&1), None);
+    /// let mut arena = Arena::new();
+    /// let mut map = BTreeMap::new(&arena);
+    /// map.insert(&mut arena, 1, "a");
+    /// assert_eq!(map.remove_entry(&mut arena, &1), Some((1, "a")));
+    /// assert_eq!(map.remove_entry(&mut arena, &1), None);
     /// ```
     pub fn remove_entry<Q: ?Sized>(&mut self, arena: &mut Arena<K, V>, key: &Q) -> Option<(K, V)>
     where
@@ -875,12 +988,13 @@ impl<K, V> BTreeMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut map: BTreeMap<i32, i32> = (0..8).map(|x| (x, x*10)).collect();
+    /// let mut arena = Arena::new();
+    /// let mut map: BTreeMap<i32, i32> = BTreeMap::from_iter(&mut arena, (0..8).map(|x| (x, x*10)));
     /// // Keep only the elements with even-numbered keys.
-    /// map.retain(|&k, _| k % 2 == 0);
-    /// assert!(map.into_iter().eq(vec![(0, 0), (2, 20), (4, 40), (6, 60)]));
+    /// map.retain(&mut arena, |&k, _| k % 2 == 0);
+    /// assert!(map.into_iter(&mut arena).eq(vec![(0, 0), (2, 20), (4, 40), (6, 60)]));
     /// ```
     #[inline]
     pub fn retain<F>(&mut self, arena: &mut Arena<K, V>, mut f: F)
@@ -892,38 +1006,6 @@ impl<K, V> BTreeMap<K, V> {
         self.drain_filter(arena, |k, v| !f(k, v));
     }
 
-    /// Creates an iterator that visits all elements (key-value pairs) in
-    /// ascending key order and uses a closure to determine if an element should
-    /// be removed. If the closure returns `true`, the element is removed from
-    /// the map and yielded. If the closure returns `false`, or panics, the
-    /// element remains in the map and will not be yielded.
-    ///
-    /// The iterator also lets you mutate the value of each element in the
-    /// closure, regardless of whether you choose to keep or remove it.
-    ///
-    /// If the iterator is only partially consumed or not consumed at all, each
-    /// of the remaining elements is still subjected to the closure, which may
-    /// change its value and, by returning `true`, have the element removed and
-    /// dropped.
-    ///
-    /// It is unspecified how many more elements will be subjected to the
-    /// closure if a panic occurs in the closure, or a panic occurs while
-    /// dropping an element, or if the `DrainFilter` value is leaked.
-    ///
-    /// # Examples
-    ///
-    /// Splitting a map into even and odd keys, reusing the original map:
-    ///
-    /// ```
-    /// #![feature(btree_drain_filter)]
-    /// use std::collections::BTreeMap;
-    ///
-    /// let mut map: BTreeMap<i32, i32> = (0..8).map(|x| (x, x)).collect();
-    /// let evens: BTreeMap<_, _> = map.drain_filter(|k, _v| k % 2 == 0).collect();
-    /// let odds = map;
-    /// assert_eq!(evens.keys().copied().collect::<Vec<_>>(), [0, 2, 4, 6]);
-    /// assert_eq!(odds.keys().copied().collect::<Vec<_>>(), [1, 3, 5, 7]);
-    /// ```
     pub(crate) fn drain_filter<'a, F>(
         &'a mut self,
         arena: &'a mut Arena<K, V>,
@@ -969,7 +1051,7 @@ impl<K, V> BTreeMap<K, V> {
     // /// # Examples
     // ///
     // /// ```
-    // /// use std::collections::BTreeMap;
+    // /// use arena_btree::BTreeMap;
     // ///
     // /// let mut a = BTreeMap::new();
     // /// a.insert(1, "a");
@@ -1033,17 +1115,20 @@ impl<K, V> BTreeMap<K, V> {
     /// Basic usage:
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     /// use std::ops::Bound::Included;
     ///
-    /// let mut map = BTreeMap::new();
-    /// map.insert(3, "a");
-    /// map.insert(5, "b");
-    /// map.insert(8, "c");
-    /// for (&key, &value) in map.range((Included(&4), Included(&8))) {
+    /// let mut arena = Arena::new();
+    /// let mut map = BTreeMap::new(&arena);
+    /// map.insert(&mut arena, 3, "a");
+    /// map.insert(&mut arena, 5, "b");
+    /// map.insert(&mut arena, 8, "c");
+    /// for (&key, &value) in map.range(&arena, (Included(&4), Included(&8))) {
     ///     println!("{key}: {value}");
     /// }
-    /// assert_eq!(Some((&5, &"b")), map.range(4..).next());
+    /// assert_eq!(Some((&5, &"b")), map.range(&arena, 4..).next());
+    ///
+    /// map.drop(&mut arena);
     /// ```
     pub fn range<'a, T: ?Sized, R>(&'a self, arena: &'a Arena<K, V>, range: R) -> Range<'a, K, V>
     where
@@ -1082,14 +1167,17 @@ impl<K, V> BTreeMap<K, V> {
     /// Basic usage:
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut map: BTreeMap<&str, i32> =
-    ///     [("Alice", 0), ("Bob", 0), ("Carol", 0), ("Cheryl", 0)].into();
-    /// for (_, balance) in map.range_mut("B".."Cheryl") {
+    /// let mut arena = Arena::new();
+    /// let mut map: BTreeMap<&str, i32> = BTreeMap::from_iter(
+    ///     &mut arena,
+    ///     [("Alice", 0), ("Bob", 0), ("Carol", 0), ("Cheryl", 0)],
+    /// );
+    /// for (_, balance) in map.range_mut(&arena, "B".."Cheryl") {
     ///     *balance += 100;
     /// }
-    /// for (name, balance) in &map {
+    /// for (name, balance) in map.into_iter(&mut arena) {
     ///     println!("{name} => {balance}");
     /// }
     /// ```
@@ -1126,18 +1214,21 @@ impl<K, V> BTreeMap<K, V> {
     /// Basic usage:
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut count: BTreeMap<&str, usize> = BTreeMap::new();
+    /// let mut arena = Arena::new();
+    /// let mut count: BTreeMap<&str, usize> = BTreeMap::new(&arena);
     ///
     /// // count the number of occurrences of letters in the vec
     /// for x in ["a", "b", "a", "c", "a", "b"] {
-    ///     count.entry(x).and_modify(|curr| *curr += 1).or_insert(1);
+    ///     count.entry(&mut arena, x).and_modify(|curr| *curr += 1).or_insert(1);
     /// }
     ///
-    /// assert_eq!(count["a"], 3);
-    /// assert_eq!(count["b"], 2);
-    /// assert_eq!(count["c"], 1);
+    /// assert_eq!(count.get(&arena, "a"), Some(&3));
+    /// assert_eq!(count.get(&arena, "b"), Some(&2));
+    /// assert_eq!(count.get(&arena, "c"), Some(&1));
+    ///
+    /// count.drop(&mut arena);
     /// ```
     pub fn entry<'a>(&'a mut self, arena: &'a mut Arena<K, V>, key: K) -> Entry<'a, K, V>
     where
@@ -1179,7 +1270,7 @@ impl<K, V> BTreeMap<K, V> {
     // /// Basic usage:
     // ///
     // /// ```
-    // /// use std::collections::BTreeMap;
+    // /// use arena_btree::BTreeMap;
     // ///
     // /// let mut a = BTreeMap::new();
     // /// a.insert(1, "a");
@@ -1233,13 +1324,14 @@ impl<K, V> BTreeMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut a = BTreeMap::new();
-    /// a.insert(2, "b");
-    /// a.insert(1, "a");
+    /// let mut arena = Arena::new();
+    /// let mut a = BTreeMap::new(&arena);
+    /// a.insert(&mut arena, 2, "b");
+    /// a.insert(&mut arena, 1, "a");
     ///
-    /// let keys: Vec<i32> = a.into_keys().collect();
+    /// let keys: Vec<i32> = a.into_keys(&mut arena).collect();
     /// assert_eq!(keys, [1, 2]);
     /// ```
     #[inline]
@@ -1257,13 +1349,14 @@ impl<K, V> BTreeMap<K, V> {
     /// # Examples
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut a = BTreeMap::new();
-    /// a.insert(1, "hello");
-    /// a.insert(2, "goodbye");
+    /// let mut arena = Arena::new();
+    /// let mut a = BTreeMap::new(&arena);
+    /// a.insert(&mut arena, 1, "hello");
+    /// a.insert(&mut arena, 2, "goodbye");
     ///
-    /// let values: Vec<&str> = a.into_values().collect();
+    /// let values: Vec<&str> = a.into_values(&mut arena).collect();
     /// assert_eq!(values, ["hello", "goodbye"]);
     /// ```
     #[inline]
@@ -1990,7 +2083,7 @@ impl<K, V> Debug for BTreeMap<K, V> {
 //     /// Converts a `[(K, V); N]` into a `BTreeMap<(K, V)>`.
 //     ///
 //     /// ```
-//     /// use std::collections::BTreeMap;
+//     /// use arena_btree::BTreeMap;
 //     ///
 //     /// let map1 = BTreeMap::from([(1, 2), (3, 4)]);
 //     /// let map2: BTreeMap<_, _> = [(1, 2), (3, 4)].into();
@@ -2015,19 +2108,22 @@ impl<K, V> BTreeMap<K, V> {
     /// Basic usage:
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut map = BTreeMap::new();
-    /// map.insert(3, "c");
-    /// map.insert(2, "b");
-    /// map.insert(1, "a");
+    /// let mut arena = Arena::new();
+    /// let mut map = BTreeMap::new(&arena);
+    /// map.insert(&mut arena, 3, "c");
+    /// map.insert(&mut arena, 2, "b");
+    /// map.insert(&mut arena, 1, "a");
     ///
-    /// for (key, value) in map.iter() {
+    /// for (key, value) in map.iter(&arena) {
     ///     println!("{key}: {value}");
     /// }
     ///
-    /// let (first_key, first_value) = map.iter().next().unwrap();
+    /// let (first_key, first_value) = map.iter(&arena).next().unwrap();
     /// assert_eq!((*first_key, *first_value), (1, "a"));
+    ///
+    /// map.drop(&mut arena);
     /// ```
     pub fn iter<'a>(&'a self, arena: &'a Arena<K, V>) -> Iter<'a, K, V> {
         assert_eq!(arena.id(), self.arena_id);
@@ -2056,20 +2152,23 @@ impl<K, V> BTreeMap<K, V> {
     /// Basic usage:
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut map = BTreeMap::from([
+    /// let mut arena = Arena::new();
+    /// let mut map = BTreeMap::from_iter(&mut arena, [
     ///    ("a", 1),
     ///    ("b", 2),
     ///    ("c", 3),
     /// ]);
     ///
     /// // add 10 to the value if the key isn't "a"
-    /// for (key, value) in map.iter_mut() {
+    /// for (key, value) in map.iter_mut(&arena) {
     ///     if key != &"a" {
     ///         *value += 10;
     ///     }
     /// }
+    ///
+    /// map.drop(&mut arena);
     /// ```
     pub fn iter_mut<'a>(&'a mut self, arena: &'a Arena<K, V>) -> IterMut<'a, K, V> {
         assert_eq!(arena.id(), self.arena_id);
@@ -2099,14 +2198,17 @@ impl<K, V> BTreeMap<K, V> {
     /// Basic usage:
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut a = BTreeMap::new();
-    /// a.insert(2, "b");
-    /// a.insert(1, "a");
+    /// let mut arena = Arena::new();
+    /// let mut a = BTreeMap::new(&arena);
+    /// a.insert(&mut arena, 2, "b");
+    /// a.insert(&mut arena, 1, "a");
     ///
-    /// let keys: Vec<_> = a.keys().cloned().collect();
+    /// let keys: Vec<_> = a.keys(&arena).cloned().collect();
     /// assert_eq!(keys, [1, 2]);
+    ///
+    /// a.drop(&mut arena);
     /// ```
     pub fn keys<'a>(&'a self, arena: &'a Arena<K, V>) -> Keys<'a, K, V> {
         assert_eq!(arena.id(), self.arena_id);
@@ -2122,14 +2224,17 @@ impl<K, V> BTreeMap<K, V> {
     /// Basic usage:
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut a = BTreeMap::new();
-    /// a.insert(1, "hello");
-    /// a.insert(2, "goodbye");
+    /// let mut arena = Arena::new();
+    /// let mut a = BTreeMap::new(&arena);
+    /// a.insert(&mut arena, 1, "hello");
+    /// a.insert(&mut arena, 2, "goodbye");
     ///
-    /// let values: Vec<&str> = a.values().cloned().collect();
+    /// let values: Vec<&str> = a.values(&arena).cloned().collect();
     /// assert_eq!(values, ["hello", "goodbye"]);
+    ///
+    /// a.drop(&mut arena);
     /// ```
     pub fn values<'a>(&'a self, arena: &'a Arena<K, V>) -> Values<'a, K, V> {
         assert_eq!(arena.id(), self.arena_id);
@@ -2145,19 +2250,22 @@ impl<K, V> BTreeMap<K, V> {
     /// Basic usage:
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut a = BTreeMap::new();
-    /// a.insert(1, String::from("hello"));
-    /// a.insert(2, String::from("goodbye"));
+    /// let mut arena = Arena::new();
+    /// let mut a = BTreeMap::new(&arena);
+    /// a.insert(&mut arena, 1, String::from("hello"));
+    /// a.insert(&mut arena, 2, String::from("goodbye"));
     ///
-    /// for value in a.values_mut() {
+    /// for value in a.values_mut(&arena) {
     ///     value.push_str("!");
     /// }
     ///
-    /// let values: Vec<String> = a.values().cloned().collect();
+    /// let values: Vec<String> = a.values(&arena).cloned().collect();
     /// assert_eq!(values, [String::from("hello!"),
     ///                     String::from("goodbye!")]);
+    ///
+    /// a.drop(&mut arena);
     /// ```
     pub fn values_mut<'a>(&'a mut self, arena: &'a Arena<K, V>) -> ValuesMut<'a, K, V> {
         assert_eq!(arena.id(), self.arena_id);
@@ -2173,12 +2281,15 @@ impl<K, V> BTreeMap<K, V> {
     /// Basic usage:
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena,BTreeMap};
     ///
-    /// let mut a = BTreeMap::new();
+    /// let mut arena = Arena::new();
+    /// let mut a = BTreeMap::new(&arena);
     /// assert_eq!(a.len(), 0);
-    /// a.insert(1, "a");
+    /// a.insert(&mut arena, 1, "a");
     /// assert_eq!(a.len(), 1);
+    ///
+    /// a.drop(&mut arena);
     /// ```
     #[must_use]
     pub const fn len(&self) -> usize {
@@ -2192,12 +2303,15 @@ impl<K, V> BTreeMap<K, V> {
     /// Basic usage:
     ///
     /// ```
-    /// use std::collections::BTreeMap;
+    /// use arena_btree::{Arena, BTreeMap};
     ///
-    /// let mut a = BTreeMap::new();
+    /// let mut arena = Arena::new();
+    /// let mut a = BTreeMap::new(&arena);
     /// assert!(a.is_empty());
-    /// a.insert(1, "a");
+    /// a.insert(&mut arena, 1, "a");
     /// assert!(!a.is_empty());
+    ///
+    /// a.drop(&mut arena);
     /// ```
     #[must_use]
     pub const fn is_empty(&self) -> bool {
