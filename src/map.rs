@@ -1545,6 +1545,7 @@ where
     pred: F,
     inner: DrainFilterInner<'a, K, V>,
 }
+
 /// Most of the implementation of DrainFilter are generic over the type
 /// of the predicate, thus also serving for BTreeSet::DrainFilter.
 pub(super) struct DrainFilterInner<'a, K, V> {
@@ -1568,7 +1569,24 @@ where
     F: FnMut(&K, &mut V) -> bool,
 {
     fn drop(&mut self) {
-        self.for_each(drop);
+        struct Guard<'a, 'b, K, V, F>(&'a mut DrainFilter<'b, K, V, F>)
+        where
+            F: FnMut(&K, &mut V) -> bool;
+        impl<'a, 'b, K, V, F> Drop for Guard<'a, 'b, K, V, F>
+        where
+            F: FnMut(&K, &mut V) -> bool,
+        {
+            fn drop(&mut self) {
+                self.0.for_each(|x| {
+                    drop(x);
+                });
+            }
+        }
+
+        let g = Guard(self);
+        g.0.for_each(|x| {
+            drop(x);
+        });
     }
 }
 

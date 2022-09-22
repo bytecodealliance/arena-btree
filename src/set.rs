@@ -1125,7 +1125,20 @@ where
     F: FnMut(&T) -> bool,
 {
     fn drop(&mut self) {
-        self.for_each(drop);
+        struct Guard<'a, 'b, T, F>(&'a mut DrainFilter<'b, T, F>)
+        where
+            F: FnMut(&T) -> bool;
+        impl<'a, 'b, T, F> Drop for Guard<'a, 'b, T, F>
+        where
+            F: FnMut(&T) -> bool,
+        {
+            fn drop(&mut self) {
+                self.0.for_each(drop);
+            }
+        }
+
+        let g = Guard(self);
+        g.0.for_each(drop);
     }
 }
 

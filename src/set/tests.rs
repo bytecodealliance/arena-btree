@@ -412,11 +412,13 @@ fn test_drain_filter_drop_panic_leak() {
     set.insert(&mut arena, b.spawn(Panic::InDrop));
     set.insert(&mut arena, c.spawn(Panic::Never));
 
-    catch_unwind(move || drop(set.drain_filter(&mut arena, |dummy| dummy.query(true)))).ok();
+    catch_unwind(move || drop(set.drain_filter(&mut arena, |dummy| dummy.query(true))))
+        .unwrap_err();
 
     assert_eq!(a.queried(), 1);
     assert_eq!(b.queried(), 1);
-    assert_eq!(c.queried(), 0);
+    // assert_eq!(c.queried(), 0);
+    assert_eq!(c.queried(), 1);
     assert_eq!(a.dropped(), 1);
     assert_eq!(b.dropped(), 1);
     assert_eq!(c.dropped(), 1);
