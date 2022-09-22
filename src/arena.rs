@@ -21,6 +21,12 @@ pub struct Arena<K, V> {
 unsafe impl<K: Send, V: Send> Send for Arena<K, V> {}
 unsafe impl<K, V> Sync for Arena<K, V> {}
 
+impl<K, V> std::fmt::Debug for Arena<K, V> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Arena").finish()
+    }
+}
+
 impl<K, V> Default for Arena<K, V> {
     fn default() -> Self {
         Self::new()
