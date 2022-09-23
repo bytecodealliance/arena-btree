@@ -1,6 +1,6 @@
 // We avoid relying on anything else in the crate, apart from the `Debug` trait.
-use crate::fmt::Debug;
 use std::cmp::Ordering;
+use std::fmt::Debug;
 use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 
 /// A blueprint for crash test dummy instances that monitor particular events.
@@ -31,7 +31,10 @@ impl CrashTestDummy {
     /// Creates an instance of a crash test dummy that records what events it experiences
     /// and optionally panics.
     pub fn spawn(&self, panic: Panic) -> Instance<'_> {
-        Instance { origin: self, panic }
+        Instance {
+            origin: self,
+            panic,
+        }
     }
 
     /// Returns how many times instances of the dummy have been cloned.
@@ -73,7 +76,7 @@ impl Instance<'_> {
     pub fn query<R>(&self, result: R) -> R {
         self.origin.queried.fetch_add(1, SeqCst);
         if self.panic == Panic::InQuery {
-            panic!("panic in `query`");
+            panic!("panic in `query` for id={}", self.id());
         }
         result
     }
@@ -83,9 +86,12 @@ impl Clone for Instance<'_> {
     fn clone(&self) -> Self {
         self.origin.cloned.fetch_add(1, SeqCst);
         if self.panic == Panic::InClone {
-            panic!("panic in `clone`");
+            panic!("panic in `clone` for id={}", self.id());
         }
-        Self { origin: self.origin, panic: Panic::Never }
+        Self {
+            origin: self.origin,
+            panic: Panic::Never,
+        }
     }
 }
 
@@ -93,7 +99,7 @@ impl Drop for Instance<'_> {
     fn drop(&mut self) {
         self.origin.dropped.fetch_add(1, SeqCst);
         if self.panic == Panic::InDrop {
-            panic!("panic in `drop`");
+            panic!("panic in `drop` for id={}", self.id());
         }
     }
 }

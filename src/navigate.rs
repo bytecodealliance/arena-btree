@@ -1,26 +1,31 @@
+use super::node::{marker, ForceResult::*, Handle, NodeRef};
+use crate::arena::Arena;
 use core::borrow::Borrow;
 use core::hint;
 use core::ops::RangeBounds;
 use core::ptr;
 
-use super::node::{marker, ForceResult::*, Handle, NodeRef};
-
-use crate::alloc::Allocator;
 // `front` and `back` are always both `None` or both `Some`.
-pub struct LeafRange<BorrowType, K, V> {
+pub(crate) struct LeafRange<BorrowType, K, V> {
     front: Option<Handle<NodeRef<BorrowType, K, V, marker::Leaf>, marker::Edge>>,
     back: Option<Handle<NodeRef<BorrowType, K, V, marker::Leaf>, marker::Edge>>,
 }
 
 impl<'a, K: 'a, V: 'a> Clone for LeafRange<marker::Immut<'a>, K, V> {
     fn clone(&self) -> Self {
-        LeafRange { front: self.front.clone(), back: self.back.clone() }
+        LeafRange {
+            front: self.front.clone(),
+            back: self.back.clone(),
+        }
     }
 }
 
 impl<BorrowType, K, V> LeafRange<BorrowType, K, V> {
     pub fn none() -> Self {
-        LeafRange { front: None, back: None }
+        LeafRange {
+            front: None,
+            back: None,
+        }
     }
 
     fn is_empty(&self) -> bool {
@@ -38,31 +43,31 @@ impl<BorrowType, K, V> LeafRange<BorrowType, K, V> {
 
 impl<'a, K, V> LeafRange<marker::Immut<'a>, K, V> {
     #[inline]
-    pub fn next_checked(&mut self) -> Option<(&'a K, &'a V)> {
-        self.perform_next_checked(|kv| kv.into_kv())
+    pub fn next_checked(&mut self, arena: &Arena<K, V>) -> Option<(&'a K, &'a V)> {
+        self.perform_next_checked(arena, |kv| kv.into_kv(arena))
     }
 
     #[inline]
-    pub fn next_back_checked(&mut self) -> Option<(&'a K, &'a V)> {
-        self.perform_next_back_checked(|kv| kv.into_kv())
+    pub fn next_back_checked(&mut self, arena: &Arena<K, V>) -> Option<(&'a K, &'a V)> {
+        self.perform_next_back_checked(arena, |kv| kv.into_kv(arena))
     }
 }
 
 impl<'a, K, V> LeafRange<marker::ValMut<'a>, K, V> {
     #[inline]
-    pub fn next_checked(&mut self) -> Option<(&'a K, &'a mut V)> {
-        self.perform_next_checked(|kv| unsafe { ptr::read(kv) }.into_kv_valmut())
+    pub fn next_checked(&mut self, arena: &Arena<K, V>) -> Option<(&'a K, &'a mut V)> {
+        self.perform_next_checked(arena, |kv| unsafe { ptr::read(kv) }.into_kv_valmut(arena))
     }
 
     #[inline]
-    pub fn next_back_checked(&mut self) -> Option<(&'a K, &'a mut V)> {
-        self.perform_next_back_checked(|kv| unsafe { ptr::read(kv) }.into_kv_valmut())
+    pub fn next_back_checked(&mut self, arena: &Arena<K, V>) -> Option<(&'a K, &'a mut V)> {
+        self.perform_next_back_checked(arena, |kv| unsafe { ptr::read(kv) }.into_kv_valmut(arena))
     }
 }
 
 impl<BorrowType: marker::BorrowType, K, V> LeafRange<BorrowType, K, V> {
     /// If possible, extract some result from the following KV and move to the edge beyond it.
-    fn perform_next_checked<F, R>(&mut self, f: F) -> Option<R>
+    fn perform_next_checked<F, R>(&mut self, arena: &Arena<K, V>, f: F) -> Option<R>
     where
         F: Fn(&Handle<NodeRef<BorrowType, K, V, marker::LeafOrInternal>, marker::KV>) -> R,
     {
@@ -70,15 +75,15 @@ impl<BorrowType: marker::BorrowType, K, V> LeafRange<BorrowType, K, V> {
             None
         } else {
             super::mem::replace(self.front.as_mut().unwrap(), |front| {
-                let kv = front.next_kv().ok().unwrap();
+                let kv = front.next_kv(arena).ok().unwrap();
                 let result = f(&kv);
-                (kv.next_leaf_edge(), Some(result))
+                (kv.next_leaf_edge(arena), Some(result))
             })
         }
     }
 
     /// If possible, extract some result from the preceding KV and move to the edge beyond it.
-    fn perform_next_back_checked<F, R>(&mut self, f: F) -> Option<R>
+    fn perform_next_back_checked<F, R>(&mut self, arena: &Arena<K, V>, f: F) -> Option<R>
     where
         F: Fn(&Handle<NodeRef<BorrowType, K, V, marker::LeafOrInternal>, marker::KV>) -> R,
     {
@@ -86,9 +91,9 @@ impl<BorrowType: marker::BorrowType, K, V> LeafRange<BorrowType, K, V> {
             None
         } else {
             super::mem::replace(self.back.as_mut().unwrap(), |back| {
-                let kv = back.next_back_kv().ok().unwrap();
+                let kv = back.next_back_kv(arena).ok().unwrap();
                 let result = f(&kv);
-                (kv.next_back_leaf_edge(), Some(result))
+                (kv.next_back_leaf_edge(arena), Some(result))
             })
         }
     }
@@ -118,20 +123,26 @@ impl<BorrowType, K, V> LazyLeafHandle<BorrowType, K, V> {
 }
 
 // `front` and `back` are always both `None` or both `Some`.
-pub struct LazyLeafRange<BorrowType, K, V> {
+pub(crate) struct LazyLeafRange<BorrowType, K, V> {
     front: Option<LazyLeafHandle<BorrowType, K, V>>,
     back: Option<LazyLeafHandle<BorrowType, K, V>>,
 }
 
 impl<'a, K: 'a, V: 'a> Clone for LazyLeafRange<marker::Immut<'a>, K, V> {
     fn clone(&self) -> Self {
-        LazyLeafRange { front: self.front.clone(), back: self.back.clone() }
+        LazyLeafRange {
+            front: self.front.clone(),
+            back: self.back.clone(),
+        }
     }
 }
 
 impl<BorrowType, K, V> LazyLeafRange<BorrowType, K, V> {
     pub fn none() -> Self {
-        LazyLeafRange { front: None, back: None }
+        LazyLeafRange {
+            front: None,
+            back: None,
+        }
     }
 
     /// Temporarily takes out another, immutable equivalent of the same range.
@@ -145,62 +156,63 @@ impl<BorrowType, K, V> LazyLeafRange<BorrowType, K, V> {
 
 impl<'a, K, V> LazyLeafRange<marker::Immut<'a>, K, V> {
     #[inline]
-    pub unsafe fn next_unchecked(&mut self) -> (&'a K, &'a V) {
-        unsafe { self.init_front().unwrap().next_unchecked() }
+    pub unsafe fn next_unchecked(&mut self, arena: &Arena<K, V>) -> (&'a K, &'a V) {
+        unsafe { self.init_front(arena).unwrap().next_unchecked(arena) }
     }
 
     #[inline]
-    pub unsafe fn next_back_unchecked(&mut self) -> (&'a K, &'a V) {
-        unsafe { self.init_back().unwrap().next_back_unchecked() }
+    pub unsafe fn next_back_unchecked(&mut self, arena: &Arena<K, V>) -> (&'a K, &'a V) {
+        unsafe { self.init_back(arena).unwrap().next_back_unchecked(arena) }
     }
 }
 
 impl<'a, K, V> LazyLeafRange<marker::ValMut<'a>, K, V> {
     #[inline]
-    pub unsafe fn next_unchecked(&mut self) -> (&'a K, &'a mut V) {
-        unsafe { self.init_front().unwrap().next_unchecked() }
+    pub unsafe fn next_unchecked(&mut self, arena: &Arena<K, V>) -> (&'a K, &'a mut V) {
+        unsafe { self.init_front(arena).unwrap().next_unchecked(arena) }
     }
 
     #[inline]
-    pub unsafe fn next_back_unchecked(&mut self) -> (&'a K, &'a mut V) {
-        unsafe { self.init_back().unwrap().next_back_unchecked() }
+    pub unsafe fn next_back_unchecked(&mut self, arena: &Arena<K, V>) -> (&'a K, &'a mut V) {
+        unsafe { self.init_back(arena).unwrap().next_back_unchecked(arena) }
     }
 }
 
 impl<K, V> LazyLeafRange<marker::Dying, K, V> {
     fn take_front(
         &mut self,
+        arena: &Arena<K, V>,
     ) -> Option<Handle<NodeRef<marker::Dying, K, V, marker::Leaf>, marker::Edge>> {
         match self.front.take()? {
-            LazyLeafHandle::Root(root) => Some(root.first_leaf_edge()),
+            LazyLeafHandle::Root(root) => Some(root.first_leaf_edge(arena)),
             LazyLeafHandle::Edge(edge) => Some(edge),
         }
     }
 
     #[inline]
-    pub unsafe fn deallocating_next_unchecked<A: Allocator + Clone>(
+    pub unsafe fn deallocating_next_unchecked(
         &mut self,
-        alloc: A,
+        arena: &mut Arena<K, V>,
     ) -> Handle<NodeRef<marker::Dying, K, V, marker::LeafOrInternal>, marker::KV> {
         debug_assert!(self.front.is_some());
-        let front = self.init_front().unwrap();
-        unsafe { front.deallocating_next_unchecked(alloc) }
+        let front = self.init_front(arena).unwrap();
+        unsafe { front.deallocating_next_unchecked(arena) }
     }
 
     #[inline]
-    pub unsafe fn deallocating_next_back_unchecked<A: Allocator + Clone>(
+    pub unsafe fn deallocating_next_back_unchecked(
         &mut self,
-        alloc: A,
+        arena: &mut Arena<K, V>,
     ) -> Handle<NodeRef<marker::Dying, K, V, marker::LeafOrInternal>, marker::KV> {
         debug_assert!(self.back.is_some());
-        let back = self.init_back().unwrap();
-        unsafe { back.deallocating_next_back_unchecked(alloc) }
+        let back = self.init_back(arena).unwrap();
+        unsafe { back.deallocating_next_back_unchecked(arena) }
     }
 
     #[inline]
-    pub fn deallocating_end<A: Allocator + Clone>(&mut self, alloc: A) {
-        if let Some(front) = self.take_front() {
-            front.deallocating_end(alloc)
+    pub fn deallocating_end(&mut self, arena: &mut Arena<K, V>) {
+        if let Some(front) = self.take_front(arena) {
+            front.deallocating_end(arena)
         }
     }
 }
@@ -208,9 +220,12 @@ impl<K, V> LazyLeafRange<marker::Dying, K, V> {
 impl<BorrowType: marker::BorrowType, K, V> LazyLeafRange<BorrowType, K, V> {
     fn init_front(
         &mut self,
+        arena: &Arena<K, V>,
     ) -> Option<&mut Handle<NodeRef<BorrowType, K, V, marker::Leaf>, marker::Edge>> {
         if let Some(LazyLeafHandle::Root(root)) = &self.front {
-            self.front = Some(LazyLeafHandle::Edge(unsafe { ptr::read(root) }.first_leaf_edge()));
+            self.front = Some(LazyLeafHandle::Edge(
+                unsafe { ptr::read(root) }.first_leaf_edge(arena),
+            ));
         }
         match &mut self.front {
             None => None,
@@ -222,9 +237,12 @@ impl<BorrowType: marker::BorrowType, K, V> LazyLeafRange<BorrowType, K, V> {
 
     fn init_back(
         &mut self,
+        arena: &Arena<K, V>,
     ) -> Option<&mut Handle<NodeRef<BorrowType, K, V, marker::Leaf>, marker::Edge>> {
         if let Some(LazyLeafHandle::Root(root)) = &self.back {
-            self.back = Some(LazyLeafHandle::Edge(unsafe { ptr::read(root) }.last_leaf_edge()));
+            self.back = Some(LazyLeafHandle::Edge(
+                unsafe { ptr::read(root) }.last_leaf_edge(arena),
+            ));
         }
         match &mut self.back {
             None => None,
@@ -252,13 +270,14 @@ impl<BorrowType: marker::BorrowType, K, V> NodeRef<BorrowType, K, V, marker::Lea
     unsafe fn find_leaf_edges_spanning_range<Q: ?Sized, R>(
         self,
         range: R,
+        arena: &Arena<K, V>,
     ) -> LeafRange<BorrowType, K, V>
     where
         Q: Ord,
         K: Borrow<Q>,
         R: RangeBounds<Q>,
     {
-        match self.search_tree_for_bifurcation(&range) {
+        match self.search_tree_for_bifurcation(&range, arena) {
             Err(_) => LeafRange::none(),
             Ok((
                 node,
@@ -267,16 +286,24 @@ impl<BorrowType: marker::BorrowType, K, V> NodeRef<BorrowType, K, V, marker::Lea
                 mut lower_child_bound,
                 mut upper_child_bound,
             )) => {
-                let mut lower_edge = unsafe { Handle::new_edge(ptr::read(&node), lower_edge_idx) };
-                let mut upper_edge = unsafe { Handle::new_edge(node, upper_edge_idx) };
+                let mut lower_edge =
+                    unsafe { Handle::new_edge(ptr::read(&node), lower_edge_idx, arena) };
+                let mut upper_edge = unsafe { Handle::new_edge(node, upper_edge_idx, arena) };
                 loop {
                     match (lower_edge.force(), upper_edge.force()) {
-                        (Leaf(f), Leaf(b)) => return LeafRange { front: Some(f), back: Some(b) },
+                        (Leaf(f), Leaf(b)) => {
+                            return LeafRange {
+                                front: Some(f),
+                                back: Some(b),
+                            }
+                        }
                         (Internal(f), Internal(b)) => {
-                            (lower_edge, lower_child_bound) =
-                                f.descend().find_lower_bound_edge(lower_child_bound);
-                            (upper_edge, upper_child_bound) =
-                                b.descend().find_upper_bound_edge(upper_child_bound);
+                            (lower_edge, lower_child_bound) = f
+                                .descend(arena)
+                                .find_lower_bound_edge(lower_child_bound, arena);
+                            (upper_edge, upper_child_bound) = b
+                                .descend(arena)
+                                .find_upper_bound_edge(upper_child_bound, arena);
                         }
                         _ => unreachable!("BTreeMap has different depths"),
                     }
@@ -301,14 +328,18 @@ impl<'a, K: 'a, V: 'a> NodeRef<marker::Immut<'a>, K, V, marker::LeafOrInternal> 
     ///
     /// The result is meaningful only if the tree is ordered by key, like the tree
     /// in a `BTreeMap` is.
-    pub fn range_search<Q, R>(self, range: R) -> LeafRange<marker::Immut<'a>, K, V>
+    pub fn range_search<Q, R>(
+        self,
+        range: R,
+        arena: &Arena<K, V>,
+    ) -> LeafRange<marker::Immut<'a>, K, V>
     where
         Q: ?Sized + Ord,
         K: Borrow<Q>,
         R: RangeBounds<Q>,
     {
         // SAFETY: our borrow type is immutable.
-        unsafe { self.find_leaf_edges_spanning_range(range) }
+        unsafe { self.find_leaf_edges_spanning_range(range, arena) }
     }
 
     /// Finds the pair of leaf edges delimiting an entire tree.
@@ -327,13 +358,17 @@ impl<'a, K: 'a, V: 'a> NodeRef<marker::ValMut<'a>, K, V, marker::LeafOrInternal>
     ///
     /// # Safety
     /// Do not use the duplicate handles to visit the same KV twice.
-    pub fn range_search<Q, R>(self, range: R) -> LeafRange<marker::ValMut<'a>, K, V>
+    pub fn range_search<Q, R>(
+        self,
+        range: R,
+        arena: &Arena<K, V>,
+    ) -> LeafRange<marker::ValMut<'a>, K, V>
     where
         Q: ?Sized + Ord,
         K: Borrow<Q>,
         R: RangeBounds<Q>,
     {
-        unsafe { self.find_leaf_edges_spanning_range(range) }
+        unsafe { self.find_leaf_edges_spanning_range(range, arena) }
     }
 
     /// Splits a unique reference into a pair of leaf edges delimiting the full range of the tree.
@@ -367,16 +402,17 @@ impl<BorrowType: marker::BorrowType, K, V>
     /// If the leaf edge is the last one in the tree, returns [`Result::Err`] with the root node.
     pub fn next_kv(
         self,
+        arena: &Arena<K, V>,
     ) -> Result<
         Handle<NodeRef<BorrowType, K, V, marker::LeafOrInternal>, marker::KV>,
         NodeRef<BorrowType, K, V, marker::LeafOrInternal>,
     > {
-        let mut edge = self.forget_node_type();
+        let mut edge = self.forget_node_type(arena);
         loop {
-            edge = match edge.right_kv() {
+            edge = match edge.right_kv(arena) {
                 Ok(kv) => return Ok(kv),
-                Err(last_edge) => match last_edge.into_node().ascend() {
-                    Ok(parent_edge) => parent_edge.forget_node_type(),
+                Err(last_edge) => match last_edge.into_node().ascend(arena) {
+                    Ok(parent_edge) => parent_edge.forget_node_type(arena),
                     Err(root) => return Err(root),
                 },
             }
@@ -388,16 +424,17 @@ impl<BorrowType: marker::BorrowType, K, V>
     /// If the leaf edge is the first one in the tree, returns [`Result::Err`] with the root node.
     fn next_back_kv(
         self,
+        arena: &Arena<K, V>,
     ) -> Result<
         Handle<NodeRef<BorrowType, K, V, marker::LeafOrInternal>, marker::KV>,
         NodeRef<BorrowType, K, V, marker::LeafOrInternal>,
     > {
-        let mut edge = self.forget_node_type();
+        let mut edge = self.forget_node_type(arena);
         loop {
-            edge = match edge.left_kv() {
+            edge = match edge.left_kv(arena) {
                 Ok(kv) => return Ok(kv),
-                Err(last_edge) => match last_edge.into_node().ascend() {
-                    Ok(parent_edge) => parent_edge.forget_node_type(),
+                Err(last_edge) => match last_edge.into_node().ascend(arena) {
+                    Ok(parent_edge) => parent_edge.forget_node_type(arena),
                     Err(root) => return Err(root),
                 },
             }
@@ -413,15 +450,16 @@ impl<BorrowType: marker::BorrowType, K, V>
     /// If the internal edge is the last one in the tree, returns [`Result::Err`] with the root node.
     fn next_kv(
         self,
+        arena: &Arena<K, V>,
     ) -> Result<
         Handle<NodeRef<BorrowType, K, V, marker::Internal>, marker::KV>,
         NodeRef<BorrowType, K, V, marker::Internal>,
     > {
         let mut edge = self;
         loop {
-            edge = match edge.right_kv() {
+            edge = match edge.right_kv(arena) {
                 Ok(internal_kv) => return Ok(internal_kv),
-                Err(last_edge) => match last_edge.into_node().ascend() {
+                Err(last_edge) => match last_edge.into_node().ascend(arena) {
                     Ok(parent_edge) => parent_edge,
                     Err(root) => return Err(root),
                 },
@@ -444,18 +482,20 @@ impl<K, V> Handle<NodeRef<marker::Dying, K, V, marker::Leaf>, marker::Edge> {
     ///   `deallocating_next_back`.
     /// - The returned KV handle is only valid to access the key and value,
     ///   and only valid until the next call to a `deallocating_` method.
-    unsafe fn deallocating_next<A: Allocator + Clone>(
+    unsafe fn deallocating_next(
         self,
-        alloc: A,
-    ) -> Option<(Self, Handle<NodeRef<marker::Dying, K, V, marker::LeafOrInternal>, marker::KV>)>
-    {
-        let mut edge = self.forget_node_type();
+        arena: &mut Arena<K, V>,
+    ) -> Option<(
+        Self,
+        Handle<NodeRef<marker::Dying, K, V, marker::LeafOrInternal>, marker::KV>,
+    )> {
+        let mut edge = self.forget_node_type(arena);
         loop {
-            edge = match edge.right_kv() {
-                Ok(kv) => return Some((unsafe { ptr::read(&kv) }.next_leaf_edge(), kv)),
+            edge = match edge.right_kv(arena) {
+                Ok(kv) => return Some((unsafe { ptr::read(&kv) }.next_leaf_edge(arena), kv)),
                 Err(last_edge) => {
-                    match unsafe { last_edge.into_node().deallocate_and_ascend(alloc.clone()) } {
-                        Some(parent_edge) => parent_edge.forget_node_type(),
+                    match unsafe { last_edge.into_node().deallocate_and_ascend(arena) } {
+                        Some(parent_edge) => parent_edge.forget_node_type(arena),
                         None => return None,
                     }
                 }
@@ -476,18 +516,20 @@ impl<K, V> Handle<NodeRef<marker::Dying, K, V, marker::Leaf>, marker::Edge> {
     ///   `deallocating_next`.
     /// - The returned KV handle is only valid to access the key and value,
     ///   and only valid until the next call to a `deallocating_` method.
-    unsafe fn deallocating_next_back<A: Allocator + Clone>(
+    unsafe fn deallocating_next_back(
         self,
-        alloc: A,
-    ) -> Option<(Self, Handle<NodeRef<marker::Dying, K, V, marker::LeafOrInternal>, marker::KV>)>
-    {
-        let mut edge = self.forget_node_type();
+        arena: &mut Arena<K, V>,
+    ) -> Option<(
+        Self,
+        Handle<NodeRef<marker::Dying, K, V, marker::LeafOrInternal>, marker::KV>,
+    )> {
+        let mut edge = self.forget_node_type(arena);
         loop {
-            edge = match edge.left_kv() {
-                Ok(kv) => return Some((unsafe { ptr::read(&kv) }.next_back_leaf_edge(), kv)),
+            edge = match edge.left_kv(arena) {
+                Ok(kv) => return Some((unsafe { ptr::read(&kv) }.next_back_leaf_edge(arena), kv)),
                 Err(last_edge) => {
-                    match unsafe { last_edge.into_node().deallocate_and_ascend(alloc.clone()) } {
-                        Some(parent_edge) => parent_edge.forget_node_type(),
+                    match unsafe { last_edge.into_node().deallocate_and_ascend(arena) } {
+                        Some(parent_edge) => parent_edge.forget_node_type(arena),
                         None => return None,
                     }
                 }
@@ -501,12 +543,10 @@ impl<K, V> Handle<NodeRef<marker::Dying, K, V, marker::Leaf>, marker::Edge> {
     /// both sides of the tree, and have hit the same edge. As it is intended
     /// only to be called when all keys and values have been returned,
     /// no cleanup is done on any of the keys or values.
-    fn deallocating_end<A: Allocator + Clone>(self, alloc: A) {
-        let mut edge = self.forget_node_type();
-        while let Some(parent_edge) =
-            unsafe { edge.into_node().deallocate_and_ascend(alloc.clone()) }
-        {
-            edge = parent_edge.forget_node_type();
+    fn deallocating_end(self, arena: &mut Arena<K, V>) {
+        let mut edge = self.forget_node_type(arena);
+        while let Some(parent_edge) = unsafe { edge.into_node().deallocate_and_ascend(arena) } {
+            edge = parent_edge.forget_node_type(arena);
         }
     }
 }
@@ -517,10 +557,10 @@ impl<'a, K, V> Handle<NodeRef<marker::Immut<'a>, K, V, marker::Leaf>, marker::Ed
     ///
     /// # Safety
     /// There must be another KV in the direction travelled.
-    unsafe fn next_unchecked(&mut self) -> (&'a K, &'a V) {
+    unsafe fn next_unchecked(&mut self, arena: &Arena<K, V>) -> (&'a K, &'a V) {
         super::mem::replace(self, |leaf_edge| {
-            let kv = leaf_edge.next_kv().ok().unwrap();
-            (kv.next_leaf_edge(), kv.into_kv())
+            let kv = leaf_edge.next_kv(arena).ok().unwrap();
+            (kv.next_leaf_edge(arena), kv.into_kv(arena))
         })
     }
 
@@ -529,10 +569,10 @@ impl<'a, K, V> Handle<NodeRef<marker::Immut<'a>, K, V, marker::Leaf>, marker::Ed
     ///
     /// # Safety
     /// There must be another KV in the direction travelled.
-    unsafe fn next_back_unchecked(&mut self) -> (&'a K, &'a V) {
+    unsafe fn next_back_unchecked(&mut self, arena: &Arena<K, V>) -> (&'a K, &'a V) {
         super::mem::replace(self, |leaf_edge| {
-            let kv = leaf_edge.next_back_kv().ok().unwrap();
-            (kv.next_back_leaf_edge(), kv.into_kv())
+            let kv = leaf_edge.next_back_kv(arena).ok().unwrap();
+            (kv.next_back_leaf_edge(arena), kv.into_kv(arena))
         })
     }
 }
@@ -543,13 +583,13 @@ impl<'a, K, V> Handle<NodeRef<marker::ValMut<'a>, K, V, marker::Leaf>, marker::E
     ///
     /// # Safety
     /// There must be another KV in the direction travelled.
-    unsafe fn next_unchecked(&mut self) -> (&'a K, &'a mut V) {
+    unsafe fn next_unchecked(&mut self, arena: &Arena<K, V>) -> (&'a K, &'a mut V) {
         let kv = super::mem::replace(self, |leaf_edge| {
-            let kv = leaf_edge.next_kv().ok().unwrap();
-            (unsafe { ptr::read(&kv) }.next_leaf_edge(), kv)
+            let kv = leaf_edge.next_kv(arena).ok().unwrap();
+            (unsafe { ptr::read(&kv) }.next_leaf_edge(arena), kv)
         });
         // Doing this last is faster, according to benchmarks.
-        kv.into_kv_valmut()
+        kv.into_kv_valmut(arena)
     }
 
     /// Moves the leaf edge handle to the previous leaf and returns references to the
@@ -557,13 +597,13 @@ impl<'a, K, V> Handle<NodeRef<marker::ValMut<'a>, K, V, marker::Leaf>, marker::E
     ///
     /// # Safety
     /// There must be another KV in the direction travelled.
-    unsafe fn next_back_unchecked(&mut self) -> (&'a K, &'a mut V) {
+    unsafe fn next_back_unchecked(&mut self, arena: &Arena<K, V>) -> (&'a K, &'a mut V) {
         let kv = super::mem::replace(self, |leaf_edge| {
-            let kv = leaf_edge.next_back_kv().ok().unwrap();
-            (unsafe { ptr::read(&kv) }.next_back_leaf_edge(), kv)
+            let kv = leaf_edge.next_back_kv(arena).ok().unwrap();
+            (unsafe { ptr::read(&kv) }.next_back_leaf_edge(arena), kv)
         });
         // Doing this last is faster, according to benchmarks.
-        kv.into_kv_valmut()
+        kv.into_kv_valmut(arena)
     }
 }
 
@@ -580,12 +620,12 @@ impl<K, V> Handle<NodeRef<marker::Dying, K, V, marker::Leaf>, marker::Edge> {
     ///
     /// The only safe way to proceed with the updated handle is to compare it, drop it,
     /// or call this method or counterpart `deallocating_next_back_unchecked` again.
-    unsafe fn deallocating_next_unchecked<A: Allocator + Clone>(
+    unsafe fn deallocating_next_unchecked(
         &mut self,
-        alloc: A,
+        arena: &mut Arena<K, V>,
     ) -> Handle<NodeRef<marker::Dying, K, V, marker::LeafOrInternal>, marker::KV> {
         super::mem::replace(self, |leaf_edge| unsafe {
-            leaf_edge.deallocating_next(alloc).unwrap()
+            leaf_edge.deallocating_next(arena).unwrap()
         })
     }
 
@@ -601,12 +641,12 @@ impl<K, V> Handle<NodeRef<marker::Dying, K, V, marker::Leaf>, marker::Edge> {
     ///
     /// The only safe way to proceed with the updated handle is to compare it, drop it,
     /// or call this method or counterpart `deallocating_next_unchecked` again.
-    unsafe fn deallocating_next_back_unchecked<A: Allocator + Clone>(
+    unsafe fn deallocating_next_back_unchecked(
         &mut self,
-        alloc: A,
+        arena: &mut Arena<K, V>,
     ) -> Handle<NodeRef<marker::Dying, K, V, marker::LeafOrInternal>, marker::KV> {
         super::mem::replace(self, |leaf_edge| unsafe {
-            leaf_edge.deallocating_next_back(alloc).unwrap()
+            leaf_edge.deallocating_next_back(arena).unwrap()
         })
     }
 }
@@ -615,12 +655,15 @@ impl<BorrowType: marker::BorrowType, K, V> NodeRef<BorrowType, K, V, marker::Lea
     /// Returns the leftmost leaf edge in or underneath a node - in other words, the edge
     /// you need first when navigating forward (or last when navigating backward).
     #[inline]
-    pub fn first_leaf_edge(self) -> Handle<NodeRef<BorrowType, K, V, marker::Leaf>, marker::Edge> {
+    pub fn first_leaf_edge(
+        self,
+        arena: &Arena<K, V>,
+    ) -> Handle<NodeRef<BorrowType, K, V, marker::Leaf>, marker::Edge> {
         let mut node = self;
         loop {
             match node.force() {
-                Leaf(leaf) => return leaf.first_edge(),
-                Internal(internal) => node = internal.first_edge().descend(),
+                Leaf(leaf) => return leaf.first_edge(arena),
+                Internal(internal) => node = internal.first_edge(arena).descend(arena),
             }
         }
     }
@@ -628,18 +671,21 @@ impl<BorrowType: marker::BorrowType, K, V> NodeRef<BorrowType, K, V, marker::Lea
     /// Returns the rightmost leaf edge in or underneath a node - in other words, the edge
     /// you need last when navigating forward (or first when navigating backward).
     #[inline]
-    pub fn last_leaf_edge(self) -> Handle<NodeRef<BorrowType, K, V, marker::Leaf>, marker::Edge> {
+    pub fn last_leaf_edge(
+        self,
+        arena: &Arena<K, V>,
+    ) -> Handle<NodeRef<BorrowType, K, V, marker::Leaf>, marker::Edge> {
         let mut node = self;
         loop {
             match node.force() {
-                Leaf(leaf) => return leaf.last_edge(),
-                Internal(internal) => node = internal.last_edge().descend(),
+                Leaf(leaf) => return leaf.last_edge(arena),
+                Internal(internal) => node = internal.last_edge(arena).descend(arena),
             }
         }
     }
 }
 
-pub enum Position<BorrowType, K, V> {
+pub(crate) enum Position<BorrowType, K, V> {
     Leaf(NodeRef<BorrowType, K, V, marker::Leaf>),
     Internal(NodeRef<BorrowType, K, V, marker::Internal>),
     InternalKV(Handle<NodeRef<BorrowType, K, V, marker::Internal>, marker::KV>),
@@ -649,7 +695,7 @@ impl<'a, K: 'a, V: 'a> NodeRef<marker::Immut<'a>, K, V, marker::LeafOrInternal> 
     /// Visits leaf nodes and internal KVs in order of ascending keys, and also
     /// visits internal nodes as a whole in a depth first order, meaning that
     /// internal nodes precede their individual KVs and their child nodes.
-    pub fn visit_nodes_in_order<F>(self, mut visit: F)
+    pub fn visit_nodes_in_order<F>(self, arena: &Arena<K, V>, mut visit: F)
     where
         F: FnMut(Position<marker::Immut<'a>, K, V>),
     {
@@ -657,22 +703,22 @@ impl<'a, K: 'a, V: 'a> NodeRef<marker::Immut<'a>, K, V, marker::LeafOrInternal> 
             Leaf(leaf) => visit(Position::Leaf(leaf)),
             Internal(internal) => {
                 visit(Position::Internal(internal));
-                let mut edge = internal.first_edge();
+                let mut edge = internal.first_edge(arena);
                 loop {
-                    edge = match edge.descend().force() {
+                    edge = match edge.descend(arena).force() {
                         Leaf(leaf) => {
                             visit(Position::Leaf(leaf));
-                            match edge.next_kv() {
+                            match edge.next_kv(arena) {
                                 Ok(kv) => {
                                     visit(Position::InternalKV(kv));
-                                    kv.right_edge()
+                                    kv.right_edge(arena)
                                 }
                                 Err(_) => return,
                             }
                         }
                         Internal(internal) => {
                             visit(Position::Internal(internal));
-                            internal.first_edge()
+                            internal.first_edge(arena)
                         }
                     }
                 }
@@ -681,11 +727,11 @@ impl<'a, K: 'a, V: 'a> NodeRef<marker::Immut<'a>, K, V, marker::LeafOrInternal> 
     }
 
     /// Calculates the number of elements in a (sub)tree.
-    pub fn calc_length(self) -> usize {
+    pub fn calc_length(self, arena: &Arena<K, V>) -> usize {
         let mut result = 0;
-        self.visit_nodes_in_order(|pos| match pos {
-            Position::Leaf(node) => result += node.len(),
-            Position::Internal(node) => result += node.len(),
+        self.visit_nodes_in_order(arena, |pos| match pos {
+            Position::Leaf(node) => result += node.len(arena),
+            Position::Internal(node) => result += node.len(arena),
             Position::InternalKV(_) => (),
         });
         result
@@ -696,23 +742,29 @@ impl<BorrowType: marker::BorrowType, K, V>
     Handle<NodeRef<BorrowType, K, V, marker::LeafOrInternal>, marker::KV>
 {
     /// Returns the leaf edge closest to a KV for forward navigation.
-    pub fn next_leaf_edge(self) -> Handle<NodeRef<BorrowType, K, V, marker::Leaf>, marker::Edge> {
+    pub fn next_leaf_edge(
+        self,
+        arena: &Arena<K, V>,
+    ) -> Handle<NodeRef<BorrowType, K, V, marker::Leaf>, marker::Edge> {
         match self.force() {
-            Leaf(leaf_kv) => leaf_kv.right_edge(),
+            Leaf(leaf_kv) => leaf_kv.right_edge(arena),
             Internal(internal_kv) => {
-                let next_internal_edge = internal_kv.right_edge();
-                next_internal_edge.descend().first_leaf_edge()
+                let next_internal_edge = internal_kv.right_edge(arena);
+                next_internal_edge.descend(arena).first_leaf_edge(arena)
             }
         }
     }
 
     /// Returns the leaf edge closest to a KV for backward navigation.
-    fn next_back_leaf_edge(self) -> Handle<NodeRef<BorrowType, K, V, marker::Leaf>, marker::Edge> {
+    fn next_back_leaf_edge(
+        self,
+        arena: &Arena<K, V>,
+    ) -> Handle<NodeRef<BorrowType, K, V, marker::Leaf>, marker::Edge> {
         match self.force() {
-            Leaf(leaf_kv) => leaf_kv.left_edge(),
+            Leaf(leaf_kv) => leaf_kv.left_edge(arena),
             Internal(internal_kv) => {
-                let next_internal_edge = internal_kv.left_edge();
-                next_internal_edge.descend().last_leaf_edge()
+                let next_internal_edge = internal_kv.left_edge(arena);
+                next_internal_edge.descend(arena).last_leaf_edge(arena)
             }
         }
     }

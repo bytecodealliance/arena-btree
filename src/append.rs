@@ -1,6 +1,6 @@
 use super::merge_iter::MergeIterInner;
 use super::node::{self, Root};
-use core::alloc::Allocator;
+use crate::arena::Arena;
 use core::iter::FusedIterator;
 
 impl<K, V> Root<K, V> {
@@ -15,12 +15,12 @@ impl<K, V> Root<K, V> {
     /// a `BTreeMap`, both iterators should produce keys in strictly ascending
     /// order, each greater than all keys in the tree, including any keys
     /// already in the tree upon entry.
-    pub fn append_from_sorted_iters<I, A: Allocator + Clone>(
+    pub(crate) fn append_from_sorted_iters<I>(
         &mut self,
         left: I,
         right: I,
         length: &mut usize,
-        alloc: A,
+        arena: &mut Arena<K, V>,
     ) where
         K: Ord,
         I: Iterator<Item = (K, V)> + FusedIterator,
@@ -29,31 +29,31 @@ impl<K, V> Root<K, V> {
         let iter = MergeIter(MergeIterInner::new(left, right));
 
         // Meanwhile, we build a tree from the sorted sequence in linear time.
-        self.bulk_push(iter, length, alloc)
+        self.bulk_push(iter, length, arena)
     }
 
     /// Pushes all key-value pairs to the end of the tree, incrementing a
     /// `length` variable along the way. The latter makes it easier for the
     /// caller to avoid a leak when the iterator panicks.
-    pub fn bulk_push<I, A: Allocator + Clone>(&mut self, iter: I, length: &mut usize, alloc: A)
+    pub(crate) fn bulk_push<I>(&mut self, iter: I, length: &mut usize, arena: &mut Arena<K, V>)
     where
         I: Iterator<Item = (K, V)>,
     {
-        let mut cur_node = self.borrow_mut().last_leaf_edge().into_node();
+        let mut cur_node = self.borrow_mut().last_leaf_edge(arena).into_node();
         // Iterate through all key-value pairs, pushing them into nodes at the right level.
         for (key, value) in iter {
             // Try to push key-value pair into the current leaf node.
-            if cur_node.len() < node::CAPACITY {
-                cur_node.push(key, value);
+            if cur_node.len(arena) < node::CAPACITY {
+                cur_node.push(key, value, arena);
             } else {
                 // No space left, go up and push there.
                 let mut open_node;
                 let mut test_node = cur_node.forget_type();
                 loop {
-                    match test_node.ascend() {
+                    match test_node.ascend(arena) {
                         Ok(parent) => {
                             let parent = parent.into_node();
-                            if parent.len() < node::CAPACITY {
+                            if parent.len(arena) < node::CAPACITY {
                                 // Found a node with space left, push here.
                                 open_node = parent;
                                 break;
@@ -64,7 +64,7 @@ impl<K, V> Root<K, V> {
                         }
                         Err(_) => {
                             // We are at the top, create a new root node and push there.
-                            open_node = self.push_internal_level(alloc.clone());
+                            open_node = self.push_internal_level(arena);
                             break;
                         }
                     }
@@ -72,21 +72,21 @@ impl<K, V> Root<K, V> {
 
                 // Push key-value pair and new right subtree.
                 let tree_height = open_node.height() - 1;
-                let mut right_tree = Root::new(alloc.clone());
+                let mut right_tree = Root::new(arena);
                 for _ in 0..tree_height {
-                    right_tree.push_internal_level(alloc.clone());
+                    right_tree.push_internal_level(arena);
                 }
-                open_node.push(key, value, right_tree);
+                open_node.push(key, value, right_tree, arena);
 
                 // Go down to the right-most leaf again.
-                cur_node = open_node.forget_type().last_leaf_edge().into_node();
+                cur_node = open_node.forget_type().last_leaf_edge(arena).into_node();
             }
 
             // Increment length every iteration, to make sure the map drops
             // the appended elements even if advancing the iterator panicks.
             *length += 1;
         }
-        self.fix_right_border_of_plentiful();
+        self.fix_right_border_of_plentiful(arena);
     }
 }
 
