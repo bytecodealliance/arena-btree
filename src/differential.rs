@@ -1,4 +1,4 @@
-use crate::{BTreeMap as ArenaBTreeMap, BTreeSet as ArenaBTreeSet};
+use crate::{Arena, BTreeMap as ArenaBTreeMap, BTreeSet as ArenaBTreeSet};
 use arbitrary::Arbitrary;
 use std::{
     collections::{BTreeMap as StdBTreeMap, BTreeSet as StdBTreeSet, HashSet},
@@ -175,14 +175,17 @@ pub fn differential_test_map(
     use MapOperation::*;
 
     let mut std_map = StdBTreeMap::from_iter(initial_map.iter().cloned());
-    let mut arena_map = ArenaBTreeMap::from_iter(initial_map);
+
+    let arena = Arena::new();
+    let mut arena_map = ArenaBTreeMap::from_iter(&arena, initial_map);
+
     assert_std_arena_maps_equal(&std_map, &arena_map)?;
 
     for op in operations {
         match op {
             Append { other_map } => {
                 std_map.append(&mut other_map.iter().cloned().collect::<StdBTreeMap<_, _>>());
-                arena_map.append(&mut other_map.into_iter().collect::<ArenaBTreeMap<_, _>>());
+                arena_map.append(&mut ArenaBTreeMap::from_iter(&arena, other_map.into_iter()));
             }
             Clear => {
                 std_map.clear();
@@ -199,12 +202,16 @@ pub fn differential_test_map(
             }
             IntoKeys => {
                 let std_keys = mem::take(&mut std_map).into_keys().collect::<Vec<_>>();
-                let arena_keys = mem::take(&mut arena_map).into_keys().collect::<Vec<_>>();
+                let arena_keys = mem::replace(&mut arena_map, ArenaBTreeMap::new(&arena))
+                    .into_keys()
+                    .collect::<Vec<_>>();
                 ensure_eq!(std_keys, arena_keys);
             }
             IntoValues => {
                 let std_values = mem::take(&mut std_map).into_values().collect::<Vec<_>>();
-                let arena_values = mem::take(&mut arena_map).into_values().collect::<Vec<_>>();
+                let arena_values = mem::replace(&mut arena_map, ArenaBTreeMap::new(&arena))
+                    .into_values()
+                    .collect::<Vec<_>>();
                 ensure_eq!(std_values, arena_values);
             }
             IsEmpty => {
@@ -365,8 +372,11 @@ mod tests {
         let mut buf = vec![];
         let mut rng = rand::thread_rng();
 
+        // MIRI is too slow.
+        let iters = if cfg!(miri) { 5 } else { 2_000 };
+
         for input_size in vec![2, 8, 32, 128, 512, 2048] {
-            for _ in 0..2_000 {
+            for _ in 0..iters {
                 buf.resize(input_size, 0);
                 rng.fill(&mut buf[..]);
 
@@ -392,9 +402,9 @@ mod tests {
     #[test]
     fn arena_map_has_extra_trailing_entry() {
         let std_map = vec![(Key(5), Value(10))].into_iter().collect();
-        let arena_map = vec![(Key(5), Value(10)), (Key(7), Value(14))]
-            .into_iter()
-            .collect();
+        let arena = Arena::new();
+        let arena_map =
+            ArenaBTreeMap::from_iter(&arena, [(Key(5), Value(10)), (Key(7), Value(14))]);
         let err = assert_std_arena_maps_equal(&std_map, &arena_map).unwrap_err();
         assert_eq!(
             err.to_string(),
@@ -405,9 +415,8 @@ mod tests {
     #[test]
     fn arena_map_has_extra_preceding_entry() {
         let std_map = vec![(Key(5), Value(10))].into_iter().collect();
-        let arena_map = vec![(Key(3), Value(6)), (Key(5), Value(10))]
-            .into_iter()
-            .collect();
+        let arena = Arena::new();
+        let arena_map = ArenaBTreeMap::from_iter(&arena, [(Key(3), Value(6)), (Key(5), Value(10))]);
         let err = assert_std_arena_maps_equal(&std_map, &arena_map).unwrap_err();
         assert_eq!(
             err.to_string(),
@@ -420,7 +429,8 @@ mod tests {
         let std_map = vec![(Key(5), Value(10)), (Key(7), Value(14))]
             .into_iter()
             .collect();
-        let arena_map = vec![(Key(5), Value(10))].into_iter().collect();
+        let arena = Arena::new();
+        let arena_map = ArenaBTreeMap::from_iter(&arena, [(Key(5), Value(10))]);
         let err = assert_std_arena_maps_equal(&std_map, &arena_map).unwrap_err();
         assert_eq!(
             err.to_string(),
@@ -433,7 +443,8 @@ mod tests {
         let std_map = vec![(Key(3), Value(6)), (Key(5), Value(10))]
             .into_iter()
             .collect();
-        let arena_map = vec![(Key(5), Value(10))].into_iter().collect();
+        let arena = Arena::new();
+        let arena_map = ArenaBTreeMap::from_iter(&arena, [(Key(5), Value(10))]);
         let err = assert_std_arena_maps_equal(&std_map, &arena_map).unwrap_err();
         assert_eq!(
             err.to_string(),
@@ -446,9 +457,11 @@ mod tests {
         let std_map = vec![(Key(3), Value(6)), (Key(5), Value(10)), (Key(7), Value(14))]
             .into_iter()
             .collect();
-        let arena_map = vec![(Key(3), Value(6)), (Key(5), Value(10)), (Key(7), Value(14))]
-            .into_iter()
-            .collect();
+        let arena = Arena::new();
+        let arena_map = ArenaBTreeMap::from_iter(
+            &arena,
+            [(Key(3), Value(6)), (Key(5), Value(10)), (Key(7), Value(14))],
+        );
         assert_std_arena_maps_equal(&std_map, &arena_map).unwrap();
     }
 
@@ -461,13 +474,15 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let arena_map = vec![
-            (Key(5), Value(10)),
-            (Key(7), Value(14)),
-            (Key(100), Value(200)),
-        ]
-        .into_iter()
-        .collect();
+        let arena = Arena::new();
+        let arena_map = ArenaBTreeMap::from_iter(
+            &arena,
+            [
+                (Key(5), Value(10)),
+                (Key(7), Value(14)),
+                (Key(100), Value(200)),
+            ],
+        );
         let err = assert_std_arena_maps_equal(&std_map, &arena_map).unwrap_err();
         assert_eq!(
             err.to_string(),

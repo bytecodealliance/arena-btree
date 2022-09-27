@@ -77,16 +77,11 @@ impl<K, V> LeafNode<K, V> {
     }
 
     /// Creates a new boxed `LeafNode`.
-    fn new(alloc: &mut Arena<K, V>) -> Box<Self> {
+    fn new(arena: &Arena<K, V>) -> NonNull<Self> {
         unsafe {
-            let mut leaf = alloc.allocate_leaf_node();
-            LeafNode::init(leaf.as_mut_ptr());
-
-            // This is `Box::assume_init`, but that is unstable.
-            {
-                let raw = Box::into_raw(leaf);
-                unsafe { Box::from_raw(raw as *mut Self) }
-            }
+            let mut leaf = arena.allocate_leaf_node();
+            LeafNode::init(leaf.as_mut());
+            leaf
         }
     }
 }
@@ -114,17 +109,12 @@ impl<K, V> InternalNode<K, V> {
     /// An invariant of internal nodes is that they have at least one
     /// initialized and valid edge. This function does not set up
     /// such an edge.
-    unsafe fn new(alloc: &mut Arena<K, V>) -> Box<Self> {
+    unsafe fn new(arena: &Arena<K, V>) -> NonNull<Self> {
         unsafe {
-            let mut node = alloc.allocate_internal_node();
+            let mut node = arena.allocate_internal_node();
             // We only need to initialize the data; the edges are MaybeUninit.
-            LeafNode::init(ptr::addr_of_mut!((*node.as_mut_ptr()).data));
-
-            // This is `Box::assume_init` but that is unstable.
-            {
-                let raw = Box::into_raw(node);
-                unsafe { Box::from_raw(raw as *mut Self) }
-            }
+            LeafNode::init(ptr::addr_of_mut!((*node.as_mut()).data));
+            node
         }
     }
 }
@@ -222,31 +212,33 @@ unsafe impl<K: Send, V: Send, Type> Send for NodeRef<marker::Owned, K, V, Type> 
 unsafe impl<K: Send, V: Send, Type> Send for NodeRef<marker::Dying, K, V, Type> {}
 
 impl<K, V> NodeRef<marker::Owned, K, V, marker::Leaf> {
-    pub fn new_leaf(alloc: &mut Arena<K, V>) -> Self {
-        Self::from_new_leaf(LeafNode::new(alloc))
+    pub fn new_leaf(arena: &Arena<K, V>) -> Self {
+        Self::from_new_leaf(LeafNode::new(arena))
     }
 
-    fn from_new_leaf(leaf: Box<LeafNode<K, V>>) -> Self {
+    fn from_new_leaf(leaf: NonNull<LeafNode<K, V>>) -> Self {
         NodeRef {
             height: 0,
-            node: NonNull::from(Box::leak(leaf)),
+            node: leaf,
             _marker: PhantomData,
         }
     }
 }
 
 impl<K, V> NodeRef<marker::Owned, K, V, marker::Internal> {
-    fn new_internal(child: Root<K, V>, alloc: &mut Arena<K, V>) -> Self {
-        let mut new_node = unsafe { InternalNode::new(alloc) };
-        new_node.edges[0].write(child.node);
-        unsafe { NodeRef::from_new_internal(new_node, child.height + 1) }
+    fn new_internal(child: Root<K, V>, arena: &Arena<K, V>) -> Self {
+        let mut new_node = unsafe { InternalNode::new(arena) };
+        unsafe {
+            new_node.as_mut().edges[0].write(child.node);
+            NodeRef::from_new_internal(new_node, child.height + 1)
+        }
     }
 
     /// # Safety
     /// `height` must not be zero.
-    unsafe fn from_new_internal(internal: Box<InternalNode<K, V>>, height: usize) -> Self {
+    unsafe fn from_new_internal(internal: NonNull<InternalNode<K, V>>, height: usize) -> Self {
         debug_assert!(height > 0);
-        let node = NonNull::from(Box::leak(internal)).cast();
+        let node = internal.cast();
         let mut this = NodeRef {
             height,
             node,
@@ -426,16 +418,16 @@ impl<K, V> NodeRef<marker::Dying, K, V, marker::LeafOrInternal> {
     /// current node will still be accessible despite being deallocated.
     pub unsafe fn deallocate_and_ascend(
         self,
-        alloc: &mut Arena<K, V>,
+        arena: &Arena<K, V>,
     ) -> Option<Handle<NodeRef<marker::Dying, K, V, marker::Internal>, marker::Edge>> {
         let height = self.height;
         let node = self.node;
         let ret = self.ascend().ok();
         unsafe {
             if height > 0 {
-                alloc.deallocate_internal_node(node.cast())
+                arena.deallocate_internal_node(node.cast())
             } else {
-                alloc.deallocate_leaf_node(node.cast())
+                arena.deallocate_leaf_node(node.cast())
             }
         }
         ret
@@ -617,19 +609,22 @@ impl<K, V> NodeRef<marker::Owned, K, V, marker::LeafOrInternal> {
 
 impl<K, V> NodeRef<marker::Owned, K, V, marker::LeafOrInternal> {
     /// Returns a new owned tree, with its own root node that is initially empty.
-    pub fn new(alloc: &mut Arena<K, V>) -> Self {
-        NodeRef::new_leaf(alloc).forget_type()
+    pub fn new(arena: &Arena<K, V>) -> Self {
+        NodeRef::new_leaf(arena).forget_type()
     }
 
     /// Adds a new internal node with a single edge pointing to the previous root node,
     /// make that new node the root node, and return it. This increases the height by 1
     /// and is the opposite of `pop_internal_level`.
-    pub fn push_internal_level(
-        &mut self,
-        alloc: &mut Arena<K, V>,
-    ) -> NodeRef<marker::Mut<'_>, K, V, marker::Internal> {
+    pub fn push_internal_level<'a, 'arena>(
+        &'a mut self,
+        arena: &'arena Arena<K, V>,
+    ) -> NodeRef<marker::Mut<'a>, K, V, marker::Internal>
+    where
+        'a: 'arena,
+    {
         super::mem::take_mut(self, |old_root| {
-            NodeRef::new_internal(old_root, alloc).forget_type()
+            NodeRef::new_internal(old_root, arena).forget_type()
         });
 
         // `self.borrow_mut()`, except that we just forgot we're internal now:
@@ -649,7 +644,7 @@ impl<K, V> NodeRef<marker::Owned, K, V, marker::LeafOrInternal> {
     /// it will not invalidate other handles or references to the root node.
     ///
     /// Panics if there is no internal level, i.e., if the root node is a leaf.
-    pub fn pop_internal_level(&mut self, alloc: &mut Arena<K, V>) {
+    pub fn pop_internal_level(&mut self, arena: &Arena<K, V>) {
         assert!(self.height > 0);
 
         let top = self.node;
@@ -664,7 +659,7 @@ impl<K, V> NodeRef<marker::Owned, K, V, marker::LeafOrInternal> {
         self.clear_parent_link();
 
         unsafe {
-            alloc.deallocate_internal_node(top.cast());
+            arena.deallocate_internal_node(top.cast());
         }
     }
 }
@@ -986,7 +981,7 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, mark
         mut self,
         key: K,
         val: V,
-        alloc: &mut Arena<K, V>,
+        arena: &Arena<K, V>,
     ) -> (Option<SplitResult<'a, K, V, marker::Leaf>>, *mut V) {
         if self.node.len() < CAPACITY {
             let val_ptr = self.insert_fit(key, val);
@@ -994,7 +989,7 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, mark
         } else {
             let (middle_kv_idx, insertion) = splitpoint(self.idx);
             let middle = unsafe { Handle::new_kv(self.node, middle_kv_idx) };
-            let mut result = middle.split(alloc);
+            let mut result = middle.split(arena);
             let mut insertion_edge = match insertion {
                 LeftOrRight::Left(insert_idx) => unsafe {
                     Handle::new_edge(result.left.reborrow_mut(), insert_idx)
@@ -1053,7 +1048,7 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Internal>, 
         key: K,
         val: V,
         edge: Root<K, V>,
-        alloc: &mut Arena<K, V>,
+        arena: &Arena<K, V>,
     ) -> Option<SplitResult<'a, K, V, marker::Internal>> {
         assert!(edge.height == self.node.height - 1);
 
@@ -1063,7 +1058,7 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Internal>, 
         } else {
             let (middle_kv_idx, insertion) = splitpoint(self.idx);
             let middle = unsafe { Handle::new_kv(self.node, middle_kv_idx) };
-            let mut result = middle.split(alloc);
+            let mut result = middle.split(arena);
             let mut insertion_edge = match insertion {
                 LeftOrRight::Left(insert_idx) => unsafe {
                     Handle::new_edge(result.left.reborrow_mut(), insert_idx)
@@ -1090,19 +1085,19 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, mark
         self,
         key: K,
         value: V,
-        alloc: &mut Arena<K, V>,
+        arena: &Arena<K, V>,
     ) -> (
         Option<SplitResult<'a, K, V, marker::LeafOrInternal>>,
         *mut V,
     ) {
-        let (mut split, val_ptr) = match self.insert(key, value, alloc) {
+        let (mut split, val_ptr) = match self.insert(key, value, arena) {
             (None, val_ptr) => return (None, val_ptr),
             (Some(split), val_ptr) => (split.forget_node_type(), val_ptr),
         };
 
         loop {
             split = match split.left.ascend() {
-                Ok(parent) => match parent.insert(split.kv.0, split.kv.1, split.right, alloc) {
+                Ok(parent) => match parent.insert(split.kv.0, split.kv.1, split.right, arena) {
                     None => return (None, val_ptr),
                     Some(split) => split.forget_node_type(),
                 },
@@ -1264,13 +1259,10 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, mark
     /// - The key and value pointed to by this handle are extracted.
     /// - All the key-value pairs to the right of this handle are put into a newly
     ///   allocated node.
-    pub fn split(
-        mut self,
-        alloc: &mut Arena<K, V>,
-    ) -> SplitResult<'a, K, V, marker::Leaf> {
-        let mut new_node = LeafNode::new(alloc);
+    pub fn split(mut self, arena: &Arena<K, V>) -> SplitResult<'a, K, V, marker::Leaf> {
+        let mut new_node = LeafNode::new(arena);
 
-        let kv = self.split_leaf_data(&mut new_node);
+        let kv = self.split_leaf_data(unsafe { new_node.as_mut() });
 
         let right = NodeRef::from_new_leaf(new_node);
         SplitResult {
@@ -1306,18 +1298,15 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Internal>, 
     /// - The key and value pointed to by this handle are extracted.
     /// - All the edges and key-value pairs to the right of this handle are put into
     ///   a newly allocated node.
-    pub fn split(
-        mut self,
-        alloc: &mut Arena<K, V>,
-    ) -> SplitResult<'a, K, V, marker::Internal> {
+    pub fn split(mut self, arena: &Arena<K, V>) -> SplitResult<'a, K, V, marker::Internal> {
         let old_len = self.node.len();
         unsafe {
-            let mut new_node = InternalNode::new(alloc);
-            let kv = self.split_leaf_data(&mut new_node.data);
-            let new_len = usize::from(new_node.data.len);
+            let mut new_node = InternalNode::new(arena);
+            let kv = self.split_leaf_data(&mut new_node.as_mut().data);
+            let new_len = usize::from(new_node.as_ref().data.len);
             move_to_slice(
                 self.node.edge_area_mut(self.idx + 1..old_len + 1),
-                &mut new_node.edges[..new_len + 1],
+                &mut new_node.as_mut().edges[..new_len + 1],
             );
 
             let height = self.node.height;
@@ -1424,7 +1413,7 @@ impl<'a, K: 'a, V: 'a> BalancingContext<'a, K, V> {
     >(
         self,
         result: F,
-        alloc: &mut Arena<K, V>,
+        arena: &Arena<K, V>,
     ) -> R {
         let Handle {
             node: mut parent_node,
@@ -1476,9 +1465,9 @@ impl<'a, K: 'a, V: 'a> BalancingContext<'a, K, V> {
 
                 left_node.correct_childrens_parent_links(old_left_len + 1..new_left_len + 1);
 
-                alloc.deallocate_internal_node(right_node.node.cast());
+                arena.deallocate_internal_node(right_node.node.cast());
             } else {
-                alloc.deallocate_leaf_node(right_node.node.cast());
+                arena.deallocate_leaf_node(right_node.node.cast());
             }
         }
         result(parent_node, left_node)
@@ -1490,9 +1479,9 @@ impl<'a, K: 'a, V: 'a> BalancingContext<'a, K, V> {
     /// Panics unless we `.can_merge()`.
     pub fn merge_tracking_parent(
         self,
-        alloc: &mut Arena<K, V>,
+        arena: &Arena<K, V>,
     ) -> NodeRef<marker::Mut<'a>, K, V, marker::Internal> {
-        self.do_merge(|parent, _child| parent, alloc)
+        self.do_merge(|parent, _child| parent, arena)
     }
 
     /// Merges the parent's key-value pair and both adjacent child nodes into
@@ -1501,9 +1490,9 @@ impl<'a, K: 'a, V: 'a> BalancingContext<'a, K, V> {
     /// Panics unless we `.can_merge()`.
     pub fn merge_tracking_child(
         self,
-        alloc: &mut Arena<K, V>,
+        arena: &Arena<K, V>,
     ) -> NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal> {
-        self.do_merge(|_parent, child| child, alloc)
+        self.do_merge(|_parent, child| child, arena)
     }
 
     /// Merges the parent's key-value pair and both adjacent child nodes into
@@ -1514,7 +1503,7 @@ impl<'a, K: 'a, V: 'a> BalancingContext<'a, K, V> {
     pub fn merge_tracking_child_edge(
         self,
         track_edge_idx: LeftOrRight<usize>,
-        alloc: &mut Arena<K, V>,
+        arena: &Arena<K, V>,
     ) -> Handle<NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal>, marker::Edge> {
         let old_left_len = self.left_child.len();
         let right_len = self.right_child.len();
@@ -1522,7 +1511,7 @@ impl<'a, K: 'a, V: 'a> BalancingContext<'a, K, V> {
             LeftOrRight::Left(idx) => idx <= old_left_len,
             LeftOrRight::Right(idx) => idx <= right_len,
         });
-        let child = self.merge_tracking_child(alloc);
+        let child = self.merge_tracking_child(arena);
         let new_idx = match track_edge_idx {
             LeftOrRight::Left(idx) => idx,
             LeftOrRight::Right(idx) => old_left_len + 1 + idx,

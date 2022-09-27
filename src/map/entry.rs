@@ -15,15 +15,15 @@ use Entry::*;
 /// This `enum` is constructed from the [`entry`] method on [`BTreeMap`].
 ///
 /// [`entry`]: BTreeMap::entry
-pub enum Entry<'a, K: 'a, V: 'a> {
+pub enum Entry<'a, 'arena, K: 'a + 'arena, V: 'a + 'arena> {
     /// A vacant entry.
-    Vacant(VacantEntry<'a, K, V>),
+    Vacant(VacantEntry<'a, 'arena, K, V>),
 
     /// An occupied entry.
-    Occupied(OccupiedEntry<'a, K, V>),
+    Occupied(OccupiedEntry<'a, 'arena, K, V>),
 }
 
-impl<K: Debug + Ord, V: Debug> Debug for Entry<'_, K, V> {
+impl<K: Debug + Ord, V: Debug> Debug for Entry<'_, '_, K, V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Vacant(ref v) => f.debug_tuple("Entry").field(v).finish(),
@@ -35,20 +35,18 @@ impl<K: Debug + Ord, V: Debug> Debug for Entry<'_, K, V> {
 /// A view into a vacant entry in a `BTreeMap`.
 /// It is part of the [`Entry`] enum.
 
-pub struct VacantEntry<'a, K, V> {
+pub struct VacantEntry<'a, 'arena, K, V> {
     pub(super) key: K,
     /// `None` for a (empty) map without root
     pub(super) handle: Option<Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, marker::Edge>>,
-    pub(super) dormant_map: DormantMutRef<'a, BTreeMap<K, V>>,
-
-    /// The BTreeMap will outlive this IntoIter so we don't care about drop order for `alloc`.
-    pub(super) alloc: &'a mut Arena<K, V>,
+    pub(super) dormant_map: DormantMutRef<'a, BTreeMap<'arena, K, V>>,
+    pub(super) arena: &'arena Arena<K, V>,
 
     // Be invariant in `K` and `V`
     pub(super) _marker: PhantomData<&'a mut (K, V)>,
 }
 
-impl<K: Debug + Ord, V> Debug for VacantEntry<'_, K, V> {
+impl<K: Debug + Ord, V> Debug for VacantEntry<'_, '_, K, V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("VacantEntry").field(self.key()).finish()
     }
@@ -57,18 +55,16 @@ impl<K: Debug + Ord, V> Debug for VacantEntry<'_, K, V> {
 /// A view into an occupied entry in a `BTreeMap`.
 /// It is part of the [`Entry`] enum.
 
-pub struct OccupiedEntry<'a, K, V> {
+pub struct OccupiedEntry<'a, 'arena, K, V> {
     pub(super) handle: Handle<NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal>, marker::KV>,
-    pub(super) dormant_map: DormantMutRef<'a, BTreeMap<K, V>>,
-
-    /// The BTreeMap will outlive this IntoIter so we don't care about drop order for `alloc`.
-    pub(super) alloc: &'a mut Arena<K, V>,
+    pub(super) dormant_map: DormantMutRef<'a, BTreeMap<'arena, K, V>>,
+    pub(super) arena: &'arena Arena<K, V>,
 
     // Be invariant in `K` and `V`
     pub(super) _marker: PhantomData<&'a mut (K, V)>,
 }
 
-impl<K: Debug + Ord, V: Debug> Debug for OccupiedEntry<'_, K, V> {
+impl<K: Debug + Ord, V: Debug> Debug for OccupiedEntry<'_, '_, K, V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OccupiedEntry")
             .field("key", self.key())
@@ -77,7 +73,7 @@ impl<K: Debug + Ord, V: Debug> Debug for OccupiedEntry<'_, K, V> {
     }
 }
 
-impl<'a, K: Ord, V> Entry<'a, K, V> {
+impl<'a, 'arena, K: Ord, V> Entry<'a, 'arena, K, V> {
     /// Ensures a value is in the entry by inserting the default if empty, and returns
     /// a mutable reference to the value in the entry.
     ///
@@ -200,7 +196,7 @@ impl<'a, K: Ord, V> Entry<'a, K, V> {
     }
 }
 
-impl<'a, K: Ord, V: Default> Entry<'a, K, V> {
+impl<'a, 'arena, K: Ord, V: Default> Entry<'a, 'arena, K, V> {
     /// Ensures a value is in the entry by inserting the default value if empty,
     /// and returns a mutable reference to the value in the entry.
     ///
@@ -222,7 +218,7 @@ impl<'a, K: Ord, V: Default> Entry<'a, K, V> {
     }
 }
 
-impl<'a, K: Ord, V> VacantEntry<'a, K, V> {
+impl<'a, 'arena, K: Ord, V> VacantEntry<'a, 'arena, K, V> {
     /// Gets a reference to the key that would be used when inserting a value
     /// through the VacantEntry.
     ///
@@ -277,13 +273,13 @@ impl<'a, K: Ord, V> VacantEntry<'a, K, V> {
             None => {
                 // SAFETY: There is no tree yet so no reference to it exists.
                 let map = unsafe { self.dormant_map.awaken() };
-                let mut root = NodeRef::new_leaf(&mut self.alloc);
+                let mut root = NodeRef::new_leaf(&mut self.arena);
                 let val_ptr = root.borrow_mut().push(self.key, value) as *mut V;
                 map.root = Some(root.forget_type());
                 map.length = 1;
                 val_ptr
             }
-            Some(handle) => match handle.insert_recursing(self.key, value, &mut self.alloc) {
+            Some(handle) => match handle.insert_recursing(self.key, value, &mut self.arena) {
                 (None, val_ptr) => {
                     // SAFETY: We have consumed self.handle.
                     let map = unsafe { self.dormant_map.awaken() };
@@ -296,7 +292,7 @@ impl<'a, K: Ord, V> VacantEntry<'a, K, V> {
                     // remaining reference to the tree, ins.left.
                     let map = unsafe { self.dormant_map.awaken() };
                     let root = map.root.as_mut().unwrap(); // same as ins.left
-                    root.push_internal_level(self.alloc)
+                    root.push_internal_level(self.arena)
                         .push(ins.kv.0, ins.kv.1, ins.right);
                     map.length += 1;
                     val_ptr
@@ -309,7 +305,7 @@ impl<'a, K: Ord, V> VacantEntry<'a, K, V> {
     }
 }
 
-impl<'a, K: Ord, V> OccupiedEntry<'a, K, V> {
+impl<'a, 'arena, K: Ord, V> OccupiedEntry<'a, 'arena, K, V> {
     /// Gets a reference to the key in the entry.
     ///
     /// # Examples
@@ -472,13 +468,13 @@ impl<'a, K: Ord, V> OccupiedEntry<'a, K, V> {
         let mut emptied_internal_root = false;
         let (old_kv, _) = self
             .handle
-            .remove_kv_tracking(|_alloc| emptied_internal_root = true, &mut self.alloc);
+            .remove_kv_tracking(|_alloc| emptied_internal_root = true, self.arena);
         // SAFETY: we consumed the intermediate root borrow, `self.handle`.
         let map = unsafe { self.dormant_map.awaken() };
         map.length -= 1;
         if emptied_internal_root {
             let root = map.root.as_mut().unwrap();
-            root.pop_internal_level(self.alloc);
+            root.pop_internal_level(self.arena);
         }
         old_kv
     }

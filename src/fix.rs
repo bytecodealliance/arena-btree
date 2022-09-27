@@ -9,7 +9,7 @@ impl<'a, K: 'a, V: 'a> NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal> {
     /// an empty root.
     fn fix_node_through_parent(
         self,
-        alloc: &mut Arena<K, V>,
+        arena: &Arena<K, V>,
     ) -> Result<Option<NodeRef<marker::Mut<'a>, K, V, marker::Internal>>, Self> {
         let len = self.len();
         if len >= MIN_LEN {
@@ -18,7 +18,7 @@ impl<'a, K: 'a, V: 'a> NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal> {
             match self.choose_parent_kv() {
                 Ok(Left(mut left_parent_kv)) => {
                     if left_parent_kv.can_merge() {
-                        let parent = left_parent_kv.merge_tracking_parent(alloc);
+                        let parent = left_parent_kv.merge_tracking_parent(arena);
                         Ok(Some(parent))
                     } else {
                         left_parent_kv.bulk_steal_left(MIN_LEN - len);
@@ -27,7 +27,7 @@ impl<'a, K: 'a, V: 'a> NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal> {
                 }
                 Ok(Right(mut right_parent_kv)) => {
                     if right_parent_kv.can_merge() {
-                        let parent = right_parent_kv.merge_tracking_parent(alloc);
+                        let parent = right_parent_kv.merge_tracking_parent(arena);
                         Ok(Some(parent))
                     } else {
                         right_parent_kv.bulk_steal_right(MIN_LEN - len);
@@ -54,9 +54,9 @@ impl<'a, K: 'a, V: 'a> NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal> {
     ///
     /// This method does not expect ancestors to already be underfull upon entry
     /// and panics if it encounters an empty ancestor.
-    pub fn fix_node_and_affected_ancestors(mut self, alloc: &mut Arena<K, V>) -> bool {
+    pub fn fix_node_and_affected_ancestors(mut self, arena: &Arena<K, V>) -> bool {
         loop {
-            match self.fix_node_through_parent(alloc) {
+            match self.fix_node_through_parent(arena) {
                 Ok(Some(parent)) => self = parent.forget_type(),
                 Ok(None) => return true,
                 Err(_) => return false,
@@ -67,33 +67,33 @@ impl<'a, K: 'a, V: 'a> NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal> {
 
 impl<K, V> Root<K, V> {
     /// Removes empty levels on the top, but keeps an empty leaf if the entire tree is empty.
-    pub fn fix_top(&mut self, alloc: &mut Arena<K, V>) {
+    pub fn fix_top(&mut self, arena: &Arena<K, V>) {
         while self.height() > 0 && self.len() == 0 {
-            self.pop_internal_level(alloc);
+            self.pop_internal_level(arena);
         }
     }
 
     /// Stocks up or merge away any underfull nodes on the right border of the
     /// tree. The other nodes, those that are not the root nor a rightmost edge,
     /// must already have at least MIN_LEN elements.
-    pub fn fix_right_border(&mut self, alloc: &mut Arena<K, V>) {
-        self.fix_top(alloc);
+    pub fn fix_right_border(&mut self, arena: &Arena<K, V>) {
+        self.fix_top(arena);
         if self.len() > 0 {
             self.borrow_mut()
                 .last_kv()
-                .fix_right_border_of_right_edge(alloc);
-            self.fix_top(alloc);
+                .fix_right_border_of_right_edge(arena);
+            self.fix_top(arena);
         }
     }
 
     /// The symmetric clone of `fix_right_border`.
-    pub fn fix_left_border(&mut self, alloc: &mut Arena<K, V>) {
-        self.fix_top(alloc);
+    pub fn fix_left_border(&mut self, arena: &Arena<K, V>) {
+        self.fix_top(arena);
         if self.len() > 0 {
             self.borrow_mut()
                 .first_kv()
-                .fix_left_border_of_left_edge(alloc);
-            self.fix_top(alloc);
+                .fix_left_border_of_left_edge(arena);
+            self.fix_top(arena);
         }
     }
 
@@ -119,16 +119,16 @@ impl<K, V> Root<K, V> {
 }
 
 impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal>, marker::KV> {
-    fn fix_left_border_of_left_edge(mut self, alloc: &mut Arena<K, V>) {
+    fn fix_left_border_of_left_edge(mut self, arena: &Arena<K, V>) {
         while let Internal(internal_kv) = self.force() {
-            self = internal_kv.fix_left_child(alloc).first_kv();
+            self = internal_kv.fix_left_child(arena).first_kv();
             debug_assert!(self.reborrow().into_node().len() > MIN_LEN);
         }
     }
 
-    fn fix_right_border_of_right_edge(mut self, alloc: &mut Arena<K, V>) {
+    fn fix_right_border_of_right_edge(mut self, arena: &Arena<K, V>) {
         while let Internal(internal_kv) = self.force() {
-            self = internal_kv.fix_right_child(alloc).last_kv();
+            self = internal_kv.fix_right_child(arena).last_kv();
             debug_assert!(self.reborrow().into_node().len() > MIN_LEN);
         }
     }
@@ -141,13 +141,13 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Internal>, 
     /// Returns the left child.
     fn fix_left_child(
         self,
-        alloc: &mut Arena<K, V>,
+        arena: &Arena<K, V>,
     ) -> NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal> {
         let mut internal_kv = self.consider_for_balancing();
         let left_len = internal_kv.left_child_len();
         debug_assert!(internal_kv.right_child_len() >= MIN_LEN);
         if internal_kv.can_merge() {
-            internal_kv.merge_tracking_child(alloc)
+            internal_kv.merge_tracking_child(arena)
         } else {
             // `MIN_LEN + 1` to avoid readjust if merge happens on the next level.
             let count = (MIN_LEN + 1).saturating_sub(left_len);
@@ -164,13 +164,13 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Internal>, 
     /// Returns wherever the right child ended up.
     fn fix_right_child(
         self,
-        alloc: &mut Arena<K, V>,
+        arena: &Arena<K, V>,
     ) -> NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal> {
         let mut internal_kv = self.consider_for_balancing();
         let right_len = internal_kv.right_child_len();
         debug_assert!(internal_kv.left_child_len() >= MIN_LEN);
         if internal_kv.can_merge() {
-            internal_kv.merge_tracking_child(alloc)
+            internal_kv.merge_tracking_child(arena)
         } else {
             // `MIN_LEN + 1` to avoid readjust if merge happens on the next level.
             let count = (MIN_LEN + 1).saturating_sub(right_len);

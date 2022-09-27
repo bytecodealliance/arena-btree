@@ -20,7 +20,7 @@ impl<K, V> Root<K, V> {
         left: I,
         right: I,
         length: &mut usize,
-        alloc: &mut Arena<K, V>,
+        arena: &Arena<K, V>,
     ) where
         K: Ord,
         I: Iterator<Item = (K, V)> + FusedIterator,
@@ -29,18 +29,14 @@ impl<K, V> Root<K, V> {
         let iter = MergeIter(MergeIterInner::new(left, right));
 
         // Meanwhile, we build a tree from the sorted sequence in linear time.
-        self.bulk_push(iter, length, alloc)
+        self.bulk_push(iter, length, arena)
     }
 
     /// Pushes all key-value pairs to the end of the tree, incrementing a
     /// `length` variable along the way. The latter makes it easier for the
     /// caller to avoid a leak when the iterator panicks.
-    pub(crate) fn bulk_push<I>(
-        &mut self,
-        iter: I,
-        length: &mut usize,
-        alloc: &mut Arena<K, V>,
-    ) where
+    pub(crate) fn bulk_push<I>(&mut self, iter: I, length: &mut usize, arena: &Arena<K, V>)
+    where
         I: Iterator<Item = (K, V)>,
     {
         let mut cur_node = self.borrow_mut().last_leaf_edge().into_node();
@@ -68,7 +64,7 @@ impl<K, V> Root<K, V> {
                         }
                         Err(_) => {
                             // We are at the top, create a new root node and push there.
-                            open_node = self.push_internal_level(alloc);
+                            open_node = self.push_internal_level(arena);
                             break;
                         }
                     }
@@ -76,9 +72,9 @@ impl<K, V> Root<K, V> {
 
                 // Push key-value pair and new right subtree.
                 let tree_height = open_node.height() - 1;
-                let mut right_tree = Root::new(alloc);
+                let mut right_tree = Root::new(arena);
                 for _ in 0..tree_height {
-                    right_tree.push_internal_level(alloc);
+                    right_tree.push_internal_level(arena);
                 }
                 open_node.push(key, value, right_tree);
 

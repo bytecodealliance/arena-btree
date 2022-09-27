@@ -14,6 +14,9 @@ use core::hash::{Hash, Hasher};
 use core::iter::{FromIterator, FusedIterator, Peekable};
 use core::ops::{BitAnd, BitOr, BitXor, RangeBounds, Sub};
 
+/// An arena for `BTreeSet<T>`s.
+pub type SetArena<T> = Arena<T, SetValZST>;
+
 // FIXME(conventions): implement bounded iterators
 
 /// An ordered set based on a B-Tree.
@@ -72,37 +75,37 @@ use core::ops::{BitAnd, BitOr, BitXor, RangeBounds, Sub};
 ///
 /// let set = BTreeSet::from([1, 2, 3]);
 /// ```
-pub struct BTreeSet<T> {
-    map: BTreeMap<T, SetValZST>,
+pub struct BTreeSet<'arena, T> {
+    map: BTreeMap<'arena, T, SetValZST>,
 }
 
-impl<T: Hash> Hash for BTreeSet<T> {
+impl<T: Hash> Hash for BTreeSet<'_, T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.map.hash(state)
     }
 }
 
-impl<T: PartialEq> PartialEq for BTreeSet<T> {
+impl<T: PartialEq> PartialEq for BTreeSet<'_, T> {
     fn eq(&self, other: &BTreeSet<T>) -> bool {
         self.map.eq(&other.map)
     }
 }
 
-impl<T: Eq> Eq for BTreeSet<T> {}
+impl<T: Eq> Eq for BTreeSet<'_, T> {}
 
-impl<T: PartialOrd> PartialOrd for BTreeSet<T> {
+impl<T: PartialOrd> PartialOrd for BTreeSet<'_, T> {
     fn partial_cmp(&self, other: &BTreeSet<T>) -> Option<Ordering> {
         self.map.partial_cmp(&other.map)
     }
 }
 
-impl<T: Ord> Ord for BTreeSet<T> {
+impl<T: Ord> Ord for BTreeSet<'_, T> {
     fn cmp(&self, other: &BTreeSet<T>) -> Ordering {
         self.map.cmp(&other.map)
     }
 }
 
-impl<T: Clone> Clone for BTreeSet<T> {
+impl<T: Clone> Clone for BTreeSet<'_, T> {
     fn clone(&self) -> Self {
         BTreeSet {
             map: self.map.clone(),
@@ -121,7 +124,6 @@ impl<T: Clone> Clone for BTreeSet<T> {
 ///
 /// [`iter`]: BTreeSet::iter
 #[must_use = "iterators are lazy and do nothing unless consumed"]
-
 pub struct Iter<'a, T: 'a> {
     iter: Keys<'a, T, SetValZST>,
 }
@@ -139,10 +141,9 @@ impl<T: fmt::Debug> fmt::Debug for Iter<'_, T> {
 ///
 /// [`into_iter`]: BTreeSet#method.into_iter
 /// [`IntoIterator`]: core::iter::IntoIterator
-
 #[derive(Debug)]
-pub struct IntoIter<T> {
-    iter: super::map::IntoIter<T, SetValZST>,
+pub struct IntoIter<'arena, T> {
+    iter: super::map::IntoIter<'arena, T, SetValZST>,
 }
 
 /// An iterator over a sub-range of items in a `BTreeSet`.
@@ -153,7 +154,6 @@ pub struct IntoIter<T> {
 /// [`range`]: BTreeSet::range
 #[must_use = "iterators are lazy and do nothing unless consumed"]
 #[derive(Debug)]
-
 pub struct Range<'a, T: 'a> {
     iter: super::map::Range<'a, T, SetValZST>,
 }
@@ -166,7 +166,6 @@ pub struct Range<'a, T: 'a> {
 /// [`difference`]: BTreeSet::difference
 #[must_use = "this returns the difference as an iterator, \
               without modifying either input set"]
-
 pub struct Difference<'a, T: 'a> {
     inner: DifferenceInner<'a, T>,
 }
@@ -179,7 +178,7 @@ enum DifferenceInner<'a, T: 'a> {
     Search {
         // iterate `self`, look up in `other`
         self_iter: Iter<'a, T>,
-        other_set: &'a BTreeSet<T>,
+        other_set: &'a BTreeSet<'a, T>,
     },
     Iterate(Iter<'a, T>), // simply produce all elements in `self`
 }
@@ -253,7 +252,7 @@ enum IntersectionInner<'a, T: 'a> {
     Search {
         // iterate a small set, look up in the large set
         small_iter: Iter<'a, T>,
-        large_set: &'a BTreeSet<T>,
+        large_set: &'a BTreeSet<'a, T>,
     },
     Answer(Option<&'a T>), // return a specific element or emptiness
 }
@@ -311,7 +310,7 @@ impl<T: fmt::Debug> fmt::Debug for Union<'_, T> {
 // and it's a power of two to make that division cheap.
 const ITER_PERFORMANCE_TIPPING_SIZE_DIFF: usize = 16;
 
-impl<T> BTreeSet<T> {
+impl<'arena, T> BTreeSet<'arena, T> {
     /// Makes a new, empty `BTreeSet`.
     ///
     /// Does not allocate anything on its own.
@@ -324,16 +323,15 @@ impl<T> BTreeSet<T> {
     ///
     /// let mut set: BTreeSet<i32> = BTreeSet::new();
     /// ```
-
     #[must_use]
-    pub const fn new() -> BTreeSet<T> {
+    pub const fn new(arena: &'arena SetArena<T>) -> BTreeSet<'arena, T> {
         BTreeSet {
-            map: BTreeMap::new(),
+            map: BTreeMap::new(arena),
         }
     }
 }
 
-impl<T> BTreeSet<T> {
+impl<'arena, T> BTreeSet<'arena, T> {
     /// Constructs a double-ended iterator over a sub-range of elements in the set.
     /// The simplest way is to use the range syntax `min..max`, thus `range(min..max)` will
     /// yield elements from min (inclusive) to max (exclusive).
@@ -981,8 +979,8 @@ impl<T> BTreeSet<T> {
         T: Ord,
         F: 'a + FnMut(&T) -> bool,
     {
-        let (inner, alloc) = self.map.drain_filter_inner();
-        DrainFilter { pred, inner, alloc }
+        let (inner, arena) = self.map.drain_filter_inner();
+        DrainFilter { pred, inner, arena }
     }
 
     /// Gets an iterator that visits the elements in the `BTreeSet` in ascending
@@ -1054,57 +1052,34 @@ impl<T> BTreeSet<T> {
     }
 }
 
-impl<T: Ord> FromIterator<T> for BTreeSet<T> {
-    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> BTreeSet<T> {
+impl<'arena, T: Ord> BTreeSet<'arena, T> {
+    pub fn from_iter<I>(arena: &'arena SetArena<T>, iter: I) -> BTreeSet<T>
+    where
+        I: IntoIterator<Item = T>,
+    {
         let mut inputs: Vec<_> = iter.into_iter().collect();
 
         if inputs.is_empty() {
-            return BTreeSet::new();
+            return BTreeSet::new(arena);
         }
 
         // use stable sort to preserve the insertion order.
         inputs.sort();
-        BTreeSet::from_sorted_iter(inputs.into_iter(), Arena::default())
+        BTreeSet::from_sorted_iter(inputs.into_iter(), arena)
     }
 }
 
-impl<T: Ord> BTreeSet<T> {
-    fn from_sorted_iter<I: Iterator<Item = T>>(
-        iter: I,
-        alloc: Arena<T, SetValZST>,
-    ) -> BTreeSet<T> {
+impl<'arena, T: Ord> BTreeSet<'arena, T> {
+    fn from_sorted_iter<I: Iterator<Item = T>>(iter: I, arena: &'arena SetArena<T>) -> Self {
         let iter = iter.map(|k| (k, SetValZST::default()));
-        let map = BTreeMap::bulk_build_from_sorted_iter(iter, alloc);
+        let map = BTreeMap::bulk_build_from_sorted_iter(iter, arena);
         BTreeSet { map }
     }
 }
 
-impl<T: Ord, const N: usize> From<[T; N]> for BTreeSet<T> {
-    /// Converts a `[T; N]` into a `BTreeSet<T>`.
-    ///
-    /// ```
-    /// use std::collections::BTreeSet;
-    ///
-    /// let set1 = BTreeSet::from([1, 2, 3, 4]);
-    /// let set2: BTreeSet<_> = [1, 2, 3, 4].into();
-    /// assert_eq!(set1, set2);
-    /// ```
-    fn from(mut arr: [T; N]) -> Self {
-        if N == 0 {
-            return BTreeSet::new();
-        }
-
-        // use stable sort to preserve the insertion order.
-        arr.sort();
-        let iter = IntoIterator::into_iter(arr).map(|k| (k, SetValZST::default()));
-        let map = BTreeMap::bulk_build_from_sorted_iter(iter, Arena::default());
-        BTreeSet { map }
-    }
-}
-
-impl<T> IntoIterator for BTreeSet<T> {
+impl<'arena, T> IntoIterator for BTreeSet<'arena, T> {
     type Item = T;
-    type IntoIter = IntoIter<T>;
+    type IntoIter = IntoIter<'arena, T>;
 
     /// Gets an iterator for moving out the `BTreeSet`'s contents.
     ///
@@ -1118,14 +1093,14 @@ impl<T> IntoIterator for BTreeSet<T> {
     /// let v: Vec<_> = set.into_iter().collect();
     /// assert_eq!(v, [1, 2, 3, 4]);
     /// ```
-    fn into_iter(self) -> IntoIter<T> {
+    fn into_iter(self) -> IntoIter<'arena, T> {
         IntoIter {
             iter: self.map.into_iter(),
         }
     }
 }
 
-impl<'a, T> IntoIterator for &'a BTreeSet<T> {
+impl<'a, T> IntoIterator for &'a BTreeSet<'_, T> {
     type Item = &'a T;
     type IntoIter = Iter<'a, T>;
 
@@ -1143,7 +1118,7 @@ where
     pred: F,
     inner: super::map::DrainFilterInner<'a, T, SetValZST>,
     /// The BTreeMap will outlive this IntoIter so we don't care about drop order for `alloc`.
-    alloc: &'a mut Arena<T, SetValZST>,
+    arena: &'a Arena<T, SetValZST>,
 }
 
 impl<T, F> Drop for DrainFilter<'_, T, F>
@@ -1177,7 +1152,7 @@ where
         let pred = &mut self.pred;
         let mut mapped_pred = |k: &T, _v: &mut SetValZST| pred(k);
         self.inner
-            .next(&mut mapped_pred, &mut self.alloc)
+            .next(&mut mapped_pred, &mut self.arena)
             .map(|(k, _)| k)
     }
 
@@ -1188,7 +1163,7 @@ where
 
 impl<T, F> FusedIterator for DrainFilter<'_, T, F> where F: FnMut(&T) -> bool {}
 
-impl<T: Ord> Extend<T> for BTreeSet<T> {
+impl<T: Ord> Extend<T> for BTreeSet<'_, T> {
     #[inline]
     fn extend<Iter: IntoIterator<Item = T>>(&mut self, iter: Iter) {
         iter.into_iter().for_each(move |elem| {
@@ -1197,107 +1172,21 @@ impl<T: Ord> Extend<T> for BTreeSet<T> {
     }
 }
 
-impl<'a, T: 'a + Ord + Copy> Extend<&'a T> for BTreeSet<T> {
+impl<'a, T: 'a + Ord + Copy> Extend<&'a T> for BTreeSet<'_, T> {
     fn extend<I: IntoIterator<Item = &'a T>>(&mut self, iter: I) {
         self.extend(iter.into_iter().cloned());
     }
 }
 
-impl<T> Default for BTreeSet<T> {
-    /// Creates an empty `BTreeSet`.
-    fn default() -> BTreeSet<T> {
-        BTreeSet::new()
-    }
-}
+// omitted: Sub for BTreeSet
 
-// impl<T: Ord + Clone> Sub<&BTreeSet<T>> for &BTreeSet<T> {
-//     type Output = BTreeSet<T>;
+// omitted: BitXor for BTreeSet
 
-//     /// Returns the difference of `self` and `rhs` as a new `BTreeSet<T>`.
-//     ///
-//     /// # Examples
-//     ///
-//     /// ```
-//     /// use std::collections::BTreeSet;
-//     ///
-//     /// let a = BTreeSet::from([1, 2, 3]);
-//     /// let b = BTreeSet::from([3, 4, 5]);
-//     ///
-//     /// let result = &a - &b;
-//     /// assert_eq!(result, BTreeSet::from([1, 2]));
-//     /// ```
-//     fn sub(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
-//         BTreeSet::from_sorted_iter(self.difference(rhs).cloned(), ArenaAllocator::default())
-//     }
-// }
+// omitted: BitAnd for BTreeSet
 
-// impl<T: Ord + Clone> BitXor<&BTreeSet<T>> for &BTreeSet<T> {
-//     type Output = BTreeSet<T>;
+// omitted: BitOr for BTreeSet
 
-//     /// Returns the symmetric difference of `self` and `rhs` as a new `BTreeSet<T>`.
-//     ///
-//     /// # Examples
-//     ///
-//     /// ```
-//     /// use std::collections::BTreeSet;
-//     ///
-//     /// let a = BTreeSet::from([1, 2, 3]);
-//     /// let b = BTreeSet::from([2, 3, 4]);
-//     ///
-//     /// let result = &a ^ &b;
-//     /// assert_eq!(result, BTreeSet::from([1, 4]));
-//     /// ```
-//     fn bitxor(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
-//         BTreeSet::from_sorted_iter(
-//             self.symmetric_difference(rhs).cloned(),
-//             ArenaAllocator::default(),
-//         )
-//     }
-// }
-
-// impl<T: Ord + Clone> BitAnd<&BTreeSet<T>> for &BTreeSet<T> {
-//     type Output = BTreeSet<T>;
-
-//     /// Returns the intersection of `self` and `rhs` as a new `BTreeSet<T>`.
-//     ///
-//     /// # Examples
-//     ///
-//     /// ```
-//     /// use std::collections::BTreeSet;
-//     ///
-//     /// let a = BTreeSet::from([1, 2, 3]);
-//     /// let b = BTreeSet::from([2, 3, 4]);
-//     ///
-//     /// let result = &a & &b;
-//     /// assert_eq!(result, BTreeSet::from([2, 3]));
-//     /// ```
-//     fn bitand(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
-//         BTreeSet::from_sorted_iter(self.intersection(rhs).cloned(), ArenaAllocator::default())
-//     }
-// }
-
-// impl<T: Ord + Clone> BitOr<&BTreeSet<T>> for &BTreeSet<T> {
-//     type Output = BTreeSet<T>;
-
-//     /// Returns the union of `self` and `rhs` as a new `BTreeSet<T>`.
-//     ///
-//     /// # Examples
-//     ///
-//     /// ```
-//     /// use std::collections::BTreeSet;
-//     ///
-//     /// let a = BTreeSet::from([1, 2, 3]);
-//     /// let b = BTreeSet::from([3, 4, 5]);
-//     ///
-//     /// let result = &a | &b;
-//     /// assert_eq!(result, BTreeSet::from([1, 2, 3, 4, 5]));
-//     /// ```
-//     fn bitor(self, rhs: &BTreeSet<T>) -> BTreeSet<T> {
-//         BTreeSet::from_sorted_iter(self.union(rhs).cloned(), ArenaAllocator::default())
-//     }
-// }
-
-impl<T: Debug> Debug for BTreeSet<T> {
+impl<T: Debug> Debug for BTreeSet<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_set().entries(self.iter()).finish()
     }
@@ -1349,7 +1238,7 @@ impl<T> ExactSizeIterator for Iter<'_, T> {
 
 impl<T> FusedIterator for Iter<'_, T> {}
 
-impl<T> Iterator for IntoIter<T> {
+impl<T> Iterator for IntoIter<'_, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<T> {
@@ -1361,19 +1250,19 @@ impl<T> Iterator for IntoIter<T> {
     }
 }
 
-impl<T> DoubleEndedIterator for IntoIter<T> {
+impl<T> DoubleEndedIterator for IntoIter<'_, T> {
     fn next_back(&mut self) -> Option<T> {
         self.iter.next_back().map(|(k, _)| k)
     }
 }
 
-impl<T> ExactSizeIterator for IntoIter<T> {
+impl<T> ExactSizeIterator for IntoIter<'_, T> {
     fn len(&self) -> usize {
         self.iter.len()
     }
 }
 
-impl<T> FusedIterator for IntoIter<T> {}
+impl<T> FusedIterator for IntoIter<'_, T> {}
 
 impl<T> Clone for Range<'_, T> {
     fn clone(&self) -> Self {

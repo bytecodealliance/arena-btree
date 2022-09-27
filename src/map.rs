@@ -164,16 +164,15 @@ pub(super) const MIN_LEN: usize = node::MIN_LEN_AFTER_SPLIT;
 /// // modify an entry before an insert with in-place mutation
 /// player_stats.entry("mana").and_modify(|mana| *mana += 200).or_insert(100);
 /// ```
-pub struct BTreeMap<K, V> {
+pub struct BTreeMap<'arena, K, V> {
     root: Option<Root<K, V>>,
     length: usize,
-    /// `ManuallyDrop` to control drop order (needs to be dropped after all the nodes).
-    pub(super) alloc: ManuallyDrop<Arena<K, V>>,
+    pub(crate) arena: &'arena Arena<K, V>,
     // For dropck; the `Box` avoids making the `Unpin` impl more strict than before
     _marker: PhantomData<Box<(K, V)>>,
 }
 
-impl<K, V> Drop for BTreeMap<K, V> {
+impl<K, V> Drop for BTreeMap<'_, K, V> {
     fn drop(&mut self) {
         drop(unsafe { ptr::read(self) }.into_iter())
     }
@@ -184,19 +183,19 @@ impl<K, V> Drop for BTreeMap<K, V> {
 // Maybe we can fix it nonetheless with a crater run, or if the `UnwindSafe`
 // traits are deprecated, or disarmed (no longer causing hard errors) in the future.
 
-impl<K, V> core::panic::UnwindSafe for BTreeMap<K, V>
+impl<K, V> core::panic::UnwindSafe for BTreeMap<'_, K, V>
 where
     K: core::panic::RefUnwindSafe,
     V: core::panic::RefUnwindSafe,
 {
 }
 
-impl<K: Clone, V: Clone> Clone for BTreeMap<K, V> {
-    fn clone(&self) -> BTreeMap<K, V> {
-        fn clone_subtree<'a, K: Clone, V: Clone>(
+impl<'arena, K: Clone, V: Clone> Clone for BTreeMap<'arena, K, V> {
+    fn clone(&self) -> BTreeMap<'arena, K, V> {
+        fn clone_subtree<'a, 'arena, K: Clone, V: Clone>(
             node: NodeRef<marker::Immut<'a>, K, V, marker::LeafOrInternal>,
-            mut alloc: Arena<K, V>,
-        ) -> BTreeMap<K, V>
+            arena: &'arena Arena<K, V>,
+        ) -> BTreeMap<'arena, K, V>
         where
             K: 'a,
             V: 'a,
@@ -204,9 +203,9 @@ impl<K: Clone, V: Clone> Clone for BTreeMap<K, V> {
             match node.force() {
                 Leaf(leaf) => {
                     let mut out_tree = BTreeMap {
-                        root: Some(Root::new(&mut alloc)),
+                        root: Some(Root::new(arena)),
                         length: 0,
-                        alloc: ManuallyDrop::new(alloc),
+                        arena,
                         _marker: PhantomData,
                     };
 
@@ -230,11 +229,11 @@ impl<K: Clone, V: Clone> Clone for BTreeMap<K, V> {
                     out_tree
                 }
                 Internal(internal) => {
-                    let mut out_tree = clone_subtree(internal.first_edge().descend(), alloc);
+                    let mut out_tree = clone_subtree(internal.first_edge().descend(), arena);
 
                     {
                         let out_root = out_tree.root.as_mut().unwrap();
-                        let mut out_node = out_root.push_internal_level(&mut out_tree.alloc);
+                        let mut out_node = out_root.push_internal_level(arena);
                         let mut in_edge = internal.first_edge();
                         while let Ok(kv) = in_edge.right_kv() {
                             let (k, v) = kv.into_kv();
@@ -242,34 +241,18 @@ impl<K: Clone, V: Clone> Clone for BTreeMap<K, V> {
 
                             let k = (*k).clone();
                             let v = (*v).clone();
-                            let alloc = mem::replace(
-                                &mut out_tree.alloc,
-                                ManuallyDrop::new(Arena::default()),
-                            );
-                            let subtree =
-                                clone_subtree(in_edge.descend(), ManuallyDrop::into_inner(alloc));
+                            let subtree = clone_subtree(in_edge.descend(), arena);
 
                             // We can't destructure subtree directly
                             // because BTreeMap implements Drop
-                            let (subroot, sublength, alloc) = unsafe {
+                            let (subroot, sublength) = unsafe {
                                 let mut subtree = ManuallyDrop::new(subtree);
                                 let root = ptr::read(&subtree.root);
                                 let length = subtree.length;
-                                let alloc = mem::replace(
-                                    &mut subtree.alloc,
-                                    ManuallyDrop::new(Arena::default()),
-                                );
-                                (root, length, alloc)
+                                (root, length)
                             };
 
-                            let temp_alloc = mem::replace(&mut out_tree.alloc, alloc);
-                            debug_assert!(temp_alloc.has_empty_capacity());
-
-                            out_node.push(
-                                k,
-                                v,
-                                subroot.unwrap_or_else(|| Root::new(&mut out_tree.alloc)),
-                            );
+                            out_node.push(k, v, subroot.unwrap_or_else(|| Root::new(arena)));
                             out_tree.length += 1 + sublength;
                         }
                     }
@@ -280,18 +263,18 @@ impl<K: Clone, V: Clone> Clone for BTreeMap<K, V> {
         }
 
         if self.is_empty() {
-            BTreeMap::new()
+            BTreeMap::new(self.arena)
         } else {
             clone_subtree(
                 // unwrap succeeds because not empty
                 self.root.as_ref().unwrap().reborrow(),
-                Arena::default(),
+                self.arena,
             )
         }
     }
 }
 
-impl<K, Q: ?Sized> super::Recover<Q> for BTreeMap<K, SetValZST>
+impl<'arena, K, Q: ?Sized> super::Recover<Q> for BTreeMap<'arena, K, SetValZST>
 where
     K: Borrow<Q> + Ord,
     Q: Ord,
@@ -314,7 +297,7 @@ where
                 OccupiedEntry {
                     handle,
                     dormant_map,
-                    alloc: &mut *map.alloc,
+                    arena: map.arena,
                     _marker: PhantomData,
                 }
                 .remove_kv()
@@ -328,7 +311,7 @@ where
         let (map, dormant_map) = DormantMutRef::new(self);
         let root_node = map
             .root
-            .get_or_insert_with(|| Root::new(&mut *map.alloc))
+            .get_or_insert_with(|| Root::new(map.arena))
             .borrow_mut();
         match root_node.search_tree::<K>(&key) {
             Found(mut kv) => Some(mem::replace(kv.key_mut(), key)),
@@ -337,7 +320,7 @@ where
                     key,
                     handle: Some(handle),
                     dormant_map,
-                    alloc: &mut *map.alloc,
+                    arena: map.arena,
                     _marker: PhantomData,
                 }
                 .insert(SetValZST::default());
@@ -398,15 +381,13 @@ impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for IterMut<'_, K, V> {
 ///
 /// [`into_iter`]: IntoIterator::into_iter
 /// [`IntoIterator`]: core::iter::IntoIterator
-pub struct IntoIter<K, V> {
+pub struct IntoIter<'a, K, V> {
     range: LazyLeafRange<marker::Dying, K, V>,
     length: usize,
-
-    // Must be last, so it is dropped last.
-    alloc: Arena<K, V>,
+    arena: &'a Arena<K, V>,
 }
 
-impl<K, V> IntoIter<K, V> {
+impl<K, V> IntoIter<'_, K, V> {
     /// Returns an iterator of references over the remaining items.
     #[inline]
     pub(super) fn iter(&self) -> Iter<'_, K, V> {
@@ -417,7 +398,7 @@ impl<K, V> IntoIter<K, V> {
     }
 }
 
-impl<K: Debug, V: Debug> Debug for IntoIter<K, V> {
+impl<K: Debug, V: Debug> Debug for IntoIter<'_, K, V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_list().entries(self.iter()).finish()
     }
@@ -487,11 +468,11 @@ impl<K, V: fmt::Debug> fmt::Debug for ValuesMut<'_, K, V> {
 /// [`into_keys`]: BTreeMap::into_keys
 #[must_use = "iterators are lazy and do nothing unless consumed"]
 
-pub struct IntoKeys<K, V> {
-    inner: IntoIter<K, V>,
+pub struct IntoKeys<'a, K, V> {
+    inner: IntoIter<'a, K, V>,
 }
 
-impl<K: fmt::Debug, V> fmt::Debug for IntoKeys<K, V> {
+impl<K: fmt::Debug, V> fmt::Debug for IntoKeys<'_, K, V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_list()
             .entries(self.inner.iter().map(|(key, _)| key))
@@ -507,11 +488,11 @@ impl<K: fmt::Debug, V> fmt::Debug for IntoKeys<K, V> {
 /// [`into_values`]: BTreeMap::into_values
 #[must_use = "iterators are lazy and do nothing unless consumed"]
 
-pub struct IntoValues<K, V> {
-    inner: IntoIter<K, V>,
+pub struct IntoValues<'a, K, V> {
+    inner: IntoIter<'a, K, V>,
 }
 
-impl<K, V: fmt::Debug> fmt::Debug for IntoValues<K, V> {
+impl<K, V: fmt::Debug> fmt::Debug for IntoValues<'_, K, V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_list()
             .entries(self.inner.iter().map(|(_, val)| val))
@@ -561,7 +542,7 @@ impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for RangeMut<'_, K, V> {
     }
 }
 
-impl<K, V> BTreeMap<K, V> {
+impl<'arena, K, V> BTreeMap<'arena, K, V> {
     /// Makes a new, empty `BTreeMap`.
     ///
     /// Does not allocate anything on its own.
@@ -579,17 +560,17 @@ impl<K, V> BTreeMap<K, V> {
     /// map.insert(1, "a");
     /// ```
     #[must_use]
-    pub const fn new() -> BTreeMap<K, V> {
+    pub const fn new(arena: &'arena Arena<K, V>) -> BTreeMap<'arena, K, V> {
         BTreeMap {
             root: None,
             length: 0,
-            alloc: ManuallyDrop::new(Arena::new()),
+            arena,
             _marker: PhantomData,
         }
     }
 }
 
-impl<K, V> BTreeMap<K, V> {
+impl<K, V> BTreeMap<'_, K, V> {
     /// Clears the map, removing all elements.
     ///
     /// # Examples
@@ -605,20 +586,16 @@ impl<K, V> BTreeMap<K, V> {
     /// assert!(a.is_empty());
     /// ```
     pub fn clear(&mut self) {
-        let alloc = std::mem::replace(
-            &mut self.alloc,
-            ManuallyDrop::new(Arena::default()),
-        );
         mem::drop(BTreeMap {
             root: mem::replace(&mut self.root, None),
             length: mem::replace(&mut self.length, 0),
-            alloc,
+            arena: self.arena,
             _marker: PhantomData,
         });
     }
 }
 
-impl<K, V> BTreeMap<K, V> {
+impl<'arena, K, V> BTreeMap<'arena, K, V> {
     /// Returns a reference to the value corresponding to the key.
     ///
     /// The key may be any borrowed form of the map's key type, but the ordering
@@ -828,7 +805,7 @@ impl<K, V> BTreeMap<K, V> {
                 OccupiedEntry {
                     handle,
                     dormant_map,
-                    alloc: &mut *map.alloc,
+                    arena: map.arena,
                     _marker: PhantomData,
                 }
                 .remove_entry(),
@@ -898,13 +875,11 @@ impl<K, V> BTreeMap<K, V> {
         K: Ord,
         F: FnMut(&K, &mut V) -> bool,
     {
-        let (inner, alloc) = self.drain_filter_inner();
-        DrainFilter { pred, inner, alloc }
+        let (inner, arena) = self.drain_filter_inner();
+        DrainFilter { pred, inner, arena }
     }
 
-    pub(super) fn drain_filter_inner(
-        &mut self,
-    ) -> (DrainFilterInner<'_, K, V>, &mut Arena<K, V>)
+    pub(super) fn drain_filter_inner(&mut self) -> (DrainFilterInner<'_, K, V>, &'arena Arena<K, V>)
     where
         K: Ord,
     {
@@ -917,7 +892,7 @@ impl<K, V> BTreeMap<K, V> {
                     dormant_root: Some(dormant_root),
                     cur_leaf_edge: Some(front),
                 },
-                &mut *self.alloc,
+                self.arena,
             )
         } else {
             (
@@ -926,7 +901,7 @@ impl<K, V> BTreeMap<K, V> {
                     dormant_root: None,
                     cur_leaf_edge: None,
                 },
-                &mut *self.alloc,
+                self.arena,
             )
         }
     }
@@ -974,10 +949,10 @@ impl<K, V> BTreeMap<K, V> {
             return;
         }
 
-        let self_iter = mem::replace(self, Self::new()).into_iter();
-        let other_iter = mem::replace(other, Self::new()).into_iter();
-        let root = self.root.get_or_insert_with(|| Root::new(&mut self.alloc));
-        root.append_from_sorted_iters(self_iter, other_iter, &mut self.length, &mut self.alloc);
+        let self_iter = mem::replace(self, Self::new(self.arena)).into_iter();
+        let other_iter = mem::replace(other, Self::new(self.arena)).into_iter();
+        let root = self.root.get_or_insert_with(|| Root::new(self.arena));
+        root.append_from_sorted_iters(self_iter, other_iter, &mut self.length, self.arena);
     }
 
     /// Constructs a double-ended iterator over a sub-range of elements in the map.
@@ -1093,7 +1068,7 @@ impl<K, V> BTreeMap<K, V> {
     /// assert_eq!(count["b"], 2);
     /// assert_eq!(count["c"], 1);
     /// ```
-    pub fn entry(&mut self, key: K) -> Entry<'_, K, V>
+    pub fn entry<'a>(&'a mut self, key: K) -> Entry<'a, 'arena, K, V>
     where
         K: Ord,
     {
@@ -1103,81 +1078,28 @@ impl<K, V> BTreeMap<K, V> {
                 key,
                 handle: None,
                 dormant_map,
-                alloc: &mut map.alloc,
+                arena: map.arena,
                 _marker: PhantomData,
             }),
             Some(ref mut root) => match root.borrow_mut().search_tree(&key) {
                 Found(handle) => Occupied(OccupiedEntry {
                     handle,
                     dormant_map,
-                    alloc: &mut map.alloc,
+                    arena: map.arena,
                     _marker: PhantomData,
                 }),
                 GoDown(handle) => Vacant(VacantEntry {
                     key,
                     handle: Some(handle),
                     dormant_map,
-                    alloc: &mut map.alloc,
+                    arena: map.arena,
                     _marker: PhantomData,
                 }),
             },
         }
     }
 
-    // /// Splits the collection into two at the given key. Returns everything after the given key,
-    // /// including the key.
-    // ///
-    // /// # Examples
-    // ///
-    // /// Basic usage:
-    // ///
-    // /// ```
-    // /// use std::collections::BTreeMap;
-    // ///
-    // /// let mut a = BTreeMap::new();
-    // /// a.insert(1, "a");
-    // /// a.insert(2, "b");
-    // /// a.insert(3, "c");
-    // /// a.insert(17, "d");
-    // /// a.insert(41, "e");
-    // ///
-    // /// let b = a.split_off(&3);
-    // ///
-    // /// assert_eq!(a.len(), 2);
-    // /// assert_eq!(b.len(), 3);
-    // ///
-    // /// assert_eq!(a[&1], "a");
-    // /// assert_eq!(a[&2], "b");
-    // ///
-    // /// assert_eq!(b[&3], "c");
-    // /// assert_eq!(b[&17], "d");
-    // /// assert_eq!(b[&41], "e");
-    // /// ```
-    // pub fn split_off<Q: ?Sized + Ord>(&mut self, key: &Q) -> Self
-    // where
-    //     K: Borrow<Q> + Ord,
-    // {
-    //     todo!("FITZGEN: will need to manage the arena here");
-
-    //     if self.is_empty() {
-    //         return Self::new();
-    //     }
-
-    //     let total_num = self.len();
-    //     let left_root = self.root.as_mut().unwrap(); // unwrap succeeds because not empty
-
-    //     let right_root = left_root.split_off(key, &mut self.alloc);
-
-    //     let (new_left_len, right_len) = Root::calc_split_length(total_num, &left_root, &right_root);
-    //     self.length = new_left_len;
-
-    //     BTreeMap {
-    //         root: Some(right_root),
-    //         length: right_len,
-    //         alloc: todo!("FITZGEN"), // self.alloc.clone(),
-    //         _marker: PhantomData,
-    //     }
-    // }
+    // Omitted: BtreeMap::split
 
     /// Creates a consuming iterator visiting all the keys, in sorted order.
     /// The map cannot be used after calling this.
@@ -1196,7 +1118,7 @@ impl<K, V> BTreeMap<K, V> {
     /// assert_eq!(keys, [1, 2]);
     /// ```
     #[inline]
-    pub fn into_keys(self) -> IntoKeys<K, V> {
+    pub fn into_keys(self) -> IntoKeys<'arena, K, V> {
         IntoKeys {
             inner: self.into_iter(),
         }
@@ -1219,35 +1141,31 @@ impl<K, V> BTreeMap<K, V> {
     /// assert_eq!(values, ["hello", "goodbye"]);
     /// ```
     #[inline]
-    pub fn into_values(self) -> IntoValues<K, V> {
+    pub fn into_values(self) -> IntoValues<'arena, K, V> {
         IntoValues {
             inner: self.into_iter(),
         }
     }
 
     /// Makes a `BTreeMap` from a sorted iterator.
-    pub(crate) fn bulk_build_from_sorted_iter<I>(iter: I, mut alloc: Arena<K, V>) -> Self
+    pub(crate) fn bulk_build_from_sorted_iter<I>(iter: I, arena: &'arena Arena<K, V>) -> Self
     where
         K: Ord,
         I: IntoIterator<Item = (K, V)>,
     {
-        let mut root = Root::new(&mut alloc);
+        let mut root = Root::new(arena);
         let mut length = 0;
-        root.bulk_push(
-            DedupSortedIter::new(iter.into_iter()),
-            &mut length,
-            &mut alloc,
-        );
+        root.bulk_push(DedupSortedIter::new(iter.into_iter()), &mut length, arena);
         BTreeMap {
             root: Some(root),
             length,
-            alloc: ManuallyDrop::new(alloc),
+            arena,
             _marker: PhantomData,
         }
     }
 }
 
-impl<'a, K, V> IntoIterator for &'a BTreeMap<K, V> {
+impl<'a, K, V> IntoIterator for &'a BTreeMap<'_, K, V> {
     type Item = (&'a K, &'a V);
     type IntoIter = Iter<'a, K, V>;
 
@@ -1313,7 +1231,7 @@ impl<K, V> Clone for Iter<'_, K, V> {
     }
 }
 
-impl<'a, K, V> IntoIterator for &'a mut BTreeMap<K, V> {
+impl<'a, K, V> IntoIterator for &'a mut BTreeMap<'_, K, V> {
     type Item = (&'a K, &'a mut V);
     type IntoIter = IterMut<'a, K, V>;
 
@@ -1381,11 +1299,11 @@ impl<'a, K, V> IterMut<'a, K, V> {
     }
 }
 
-impl<K, V> IntoIterator for BTreeMap<K, V> {
+impl<'arena, K, V> IntoIterator for BTreeMap<'arena, K, V> {
     type Item = (K, V);
-    type IntoIter = IntoIter<K, V>;
+    type IntoIter = IntoIter<'arena, K, V>;
 
-    fn into_iter(self) -> IntoIter<K, V> {
+    fn into_iter(self) -> IntoIter<'arena, K, V> {
         let mut me = ManuallyDrop::new(self);
         if let Some(root) = me.root.take() {
             let full_range = root.into_dying().full_range();
@@ -1393,23 +1311,23 @@ impl<K, V> IntoIterator for BTreeMap<K, V> {
             IntoIter {
                 range: full_range,
                 length: me.length,
-                alloc: unsafe { ManuallyDrop::take(&mut me.alloc) },
+                arena: me.arena,
             }
         } else {
             IntoIter {
                 range: LazyLeafRange::none(),
                 length: 0,
-                alloc: unsafe { ManuallyDrop::take(&mut me.alloc) },
+                arena: me.arena,
             }
         }
     }
 }
 
-impl<K, V> Drop for IntoIter<K, V> {
+impl<K, V> Drop for IntoIter<'_, K, V> {
     fn drop(&mut self) {
-        struct DropGuard<'a, K, V>(&'a mut IntoIter<K, V>);
+        struct DropGuard<'a, 'arena, K, V>(&'a mut IntoIter<'arena, K, V>);
 
-        impl<'a, K, V> Drop for DropGuard<'a, K, V> {
+        impl<'a, 'arena, K, V> Drop for DropGuard<'a, 'arena, K, V> {
             fn drop(&mut self) {
                 // Continue the same loop we perform below. This only runs when unwinding, so we
                 // don't have to care about panics this time (they'll abort).
@@ -1429,18 +1347,18 @@ impl<K, V> Drop for IntoIter<K, V> {
     }
 }
 
-impl<K, V> IntoIter<K, V> {
+impl<K, V> IntoIter<'_, K, V> {
     /// Core of a `next` method returning a dying KV handle,
     /// invalidated by further calls to this function and some others.
     fn dying_next(
         &mut self,
     ) -> Option<Handle<NodeRef<marker::Dying, K, V, marker::LeafOrInternal>, marker::KV>> {
         if self.length == 0 {
-            self.range.deallocating_end(&mut self.alloc);
+            self.range.deallocating_end(self.arena);
             None
         } else {
             self.length -= 1;
-            Some(unsafe { self.range.deallocating_next_unchecked(&mut self.alloc) })
+            Some(unsafe { self.range.deallocating_next_unchecked(self.arena) })
         }
     }
 
@@ -1450,16 +1368,16 @@ impl<K, V> IntoIter<K, V> {
         &mut self,
     ) -> Option<Handle<NodeRef<marker::Dying, K, V, marker::LeafOrInternal>, marker::KV>> {
         if self.length == 0 {
-            self.range.deallocating_end(&mut self.alloc);
+            self.range.deallocating_end(self.arena);
             None
         } else {
             self.length -= 1;
-            Some(unsafe { self.range.deallocating_next_back_unchecked(&mut self.alloc) })
+            Some(unsafe { self.range.deallocating_next_back_unchecked(self.arena) })
         }
     }
 }
 
-impl<K, V> Iterator for IntoIter<K, V> {
+impl<K, V> Iterator for IntoIter<'_, K, V> {
     type Item = (K, V);
 
     fn next(&mut self) -> Option<(K, V)> {
@@ -1472,7 +1390,7 @@ impl<K, V> Iterator for IntoIter<K, V> {
     }
 }
 
-impl<K, V> DoubleEndedIterator for IntoIter<K, V> {
+impl<K, V> DoubleEndedIterator for IntoIter<'_, K, V> {
     fn next_back(&mut self) -> Option<(K, V)> {
         // SAFETY: we consume the dying handle immediately.
         self.dying_next_back()
@@ -1480,13 +1398,13 @@ impl<K, V> DoubleEndedIterator for IntoIter<K, V> {
     }
 }
 
-impl<K, V> ExactSizeIterator for IntoIter<K, V> {
+impl<K, V> ExactSizeIterator for IntoIter<'_, K, V> {
     fn len(&self) -> usize {
         self.length
     }
 }
 
-impl<K, V> FusedIterator for IntoIter<K, V> {}
+impl<K, V> FusedIterator for IntoIter<'_, K, V> {}
 
 impl<'a, K, V> Iterator for Keys<'a, K, V> {
     type Item = &'a K;
@@ -1579,7 +1497,7 @@ where
 {
     pred: F,
     inner: DrainFilterInner<'a, K, V>,
-    alloc: &'a mut Arena<K, V>,
+    arena: &'a Arena<K, V>,
 }
 /// Most of the implementation of DrainFilter are generic over the type
 /// of the predicate, thus also serving for BTreeSet::DrainFilter.
@@ -1624,7 +1542,7 @@ where
     type Item = (K, V);
 
     fn next(&mut self) -> Option<(K, V)> {
-        self.inner.next(&mut self.pred, self.alloc)
+        self.inner.next(&mut self.pred, self.arena)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -1640,11 +1558,7 @@ impl<'a, K, V> DrainFilterInner<'a, K, V> {
     }
 
     /// Implementation of a typical `DrainFilter::next` method, given the predicate.
-    pub(super) fn next<F>(
-        &mut self,
-        pred: &mut F,
-        alloc: &mut Arena<K, V>,
-    ) -> Option<(K, V)>
+    pub(super) fn next<F>(&mut self, pred: &mut F, arena: &Arena<K, V>) -> Option<(K, V)>
     where
         F: FnMut(&K, &mut V) -> bool,
     {
@@ -1660,7 +1574,7 @@ impl<'a, K, V> DrainFilterInner<'a, K, V> {
                         root.pop_internal_level(alloc);
                         self.dormant_root = Some(DormantMutRef::new(root).1);
                     },
-                    alloc,
+                    arena,
                 );
                 self.cur_leaf_edge = Some(pos);
                 return Some(kv);
@@ -1732,7 +1646,7 @@ impl<K, V> ExactSizeIterator for ValuesMut<'_, K, V> {
 
 impl<K, V> FusedIterator for ValuesMut<'_, K, V> {}
 
-impl<K, V> Iterator for IntoKeys<K, V> {
+impl<K, V> Iterator for IntoKeys<'_, K, V> {
     type Item = K;
 
     fn next(&mut self) -> Option<K> {
@@ -1756,21 +1670,21 @@ impl<K, V> Iterator for IntoKeys<K, V> {
     }
 }
 
-impl<K, V> DoubleEndedIterator for IntoKeys<K, V> {
+impl<K, V> DoubleEndedIterator for IntoKeys<'_, K, V> {
     fn next_back(&mut self) -> Option<K> {
         self.inner.next_back().map(|(k, _)| k)
     }
 }
 
-impl<K, V> ExactSizeIterator for IntoKeys<K, V> {
+impl<K, V> ExactSizeIterator for IntoKeys<'_, K, V> {
     fn len(&self) -> usize {
         self.inner.len()
     }
 }
 
-impl<K, V> FusedIterator for IntoKeys<K, V> {}
+impl<K, V> FusedIterator for IntoKeys<'_, K, V> {}
 
-impl<K, V> Iterator for IntoValues<K, V> {
+impl<K, V> Iterator for IntoValues<'_, K, V> {
     type Item = V;
 
     fn next(&mut self) -> Option<V> {
@@ -1786,19 +1700,19 @@ impl<K, V> Iterator for IntoValues<K, V> {
     }
 }
 
-impl<K, V> DoubleEndedIterator for IntoValues<K, V> {
+impl<K, V> DoubleEndedIterator for IntoValues<'_, K, V> {
     fn next_back(&mut self) -> Option<V> {
         self.inner.next_back().map(|(_, v)| v)
     }
 }
 
-impl<K, V> ExactSizeIterator for IntoValues<K, V> {
+impl<K, V> ExactSizeIterator for IntoValues<'_, K, V> {
     fn len(&self) -> usize {
         self.inner.len()
     }
 }
 
-impl<K, V> FusedIterator for IntoValues<K, V> {}
+impl<K, V> FusedIterator for IntoValues<'_, K, V> {}
 
 impl<'a, K, V> DoubleEndedIterator for Range<'a, K, V> {
     fn next_back(&mut self) -> Option<(&'a K, &'a V)> {
@@ -1844,21 +1758,25 @@ impl<'a, K, V> DoubleEndedIterator for RangeMut<'a, K, V> {
 
 impl<K, V> FusedIterator for RangeMut<'_, K, V> {}
 
-impl<K: Ord, V> FromIterator<(K, V)> for BTreeMap<K, V> {
-    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> BTreeMap<K, V> {
+impl<'arena, K: Ord, V> BTreeMap<'arena, K, V> {
+    /// Like `FromIterator::from_iter` but with an `Arena` parameter.
+    pub fn from_iter<T>(arena: &'arena Arena<K, V>, iter: T) -> Self
+    where
+        T: IntoIterator<Item = (K, V)>,
+    {
         let mut inputs: Vec<_> = iter.into_iter().collect();
 
         if inputs.is_empty() {
-            return BTreeMap::new();
+            return BTreeMap::new(arena);
         }
 
         // use stable sort to preserve the insertion order.
         inputs.sort_by(|a, b| a.0.cmp(&b.0));
-        BTreeMap::bulk_build_from_sorted_iter(inputs, Arena::default())
+        BTreeMap::bulk_build_from_sorted_iter(inputs, arena)
     }
 }
 
-impl<K: Ord, V> Extend<(K, V)> for BTreeMap<K, V> {
+impl<K: Ord, V> Extend<(K, V)> for BTreeMap<'_, K, V> {
     #[inline]
     fn extend<T: IntoIterator<Item = (K, V)>>(&mut self, iter: T) {
         iter.into_iter().for_each(move |(k, v)| {
@@ -1867,13 +1785,13 @@ impl<K: Ord, V> Extend<(K, V)> for BTreeMap<K, V> {
     }
 }
 
-impl<'a, K: Ord + Copy, V: Copy> Extend<(&'a K, &'a V)> for BTreeMap<K, V> {
+impl<'a, K: Ord + Copy, V: Copy> Extend<(&'a K, &'a V)> for BTreeMap<'_, K, V> {
     fn extend<I: IntoIterator<Item = (&'a K, &'a V)>>(&mut self, iter: I) {
         self.extend(iter.into_iter().map(|(&key, &value)| (key, value)));
     }
 }
 
-impl<K: Hash, V: Hash> Hash for BTreeMap<K, V> {
+impl<K: Hash, V: Hash> Hash for BTreeMap<'_, K, V> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.len().hash(state);
         for elt in self {
@@ -1882,42 +1800,35 @@ impl<K: Hash, V: Hash> Hash for BTreeMap<K, V> {
     }
 }
 
-impl<K, V> Default for BTreeMap<K, V> {
-    /// Creates an empty `BTreeMap`.
-    fn default() -> BTreeMap<K, V> {
-        BTreeMap::new()
-    }
-}
-
-impl<K: PartialEq, V: PartialEq> PartialEq for BTreeMap<K, V> {
+impl<K: PartialEq, V: PartialEq> PartialEq for BTreeMap<'_, K, V> {
     fn eq(&self, other: &BTreeMap<K, V>) -> bool {
         self.len() == other.len() && self.iter().zip(other).all(|(a, b)| a == b)
     }
 }
 
-impl<K: Eq, V: Eq> Eq for BTreeMap<K, V> {}
+impl<K: Eq, V: Eq> Eq for BTreeMap<'_, K, V> {}
 
-impl<K: PartialOrd, V: PartialOrd> PartialOrd for BTreeMap<K, V> {
+impl<K: PartialOrd, V: PartialOrd> PartialOrd for BTreeMap<'_, K, V> {
     #[inline]
     fn partial_cmp(&self, other: &BTreeMap<K, V>) -> Option<Ordering> {
         self.iter().partial_cmp(other.iter())
     }
 }
 
-impl<K: Ord, V: Ord> Ord for BTreeMap<K, V> {
+impl<K: Ord, V: Ord> Ord for BTreeMap<'_, K, V> {
     #[inline]
     fn cmp(&self, other: &BTreeMap<K, V>) -> Ordering {
         self.iter().cmp(other.iter())
     }
 }
 
-impl<K: Debug, V: Debug> Debug for BTreeMap<K, V> {
+impl<K: Debug, V: Debug> Debug for BTreeMap<'_, K, V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_map().entries(self.iter()).finish()
     }
 }
 
-impl<K, Q: ?Sized, V> Index<&Q> for BTreeMap<K, V>
+impl<K, Q: ?Sized, V> Index<&Q> for BTreeMap<'_, K, V>
 where
     K: Borrow<Q> + Ord,
     Q: Ord,
@@ -1935,28 +1846,7 @@ where
     }
 }
 
-impl<K: Ord, V, const N: usize> From<[(K, V); N]> for BTreeMap<K, V> {
-    /// Converts a `[(K, V); N]` into a `BTreeMap<(K, V)>`.
-    ///
-    /// ```
-    /// use std::collections::BTreeMap;
-    ///
-    /// let map1 = BTreeMap::from([(1, 2), (3, 4)]);
-    /// let map2: BTreeMap<_, _> = [(1, 2), (3, 4)].into();
-    /// assert_eq!(map1, map2);
-    /// ```
-    fn from(mut arr: [(K, V); N]) -> Self {
-        if N == 0 {
-            return BTreeMap::new();
-        }
-
-        // use stable sort to preserve the insertion order.
-        arr.sort_by(|a, b| a.0.cmp(&b.0));
-        BTreeMap::bulk_build_from_sorted_iter(arr, Arena::default())
-    }
-}
-
-impl<K, V> BTreeMap<K, V> {
+impl<K, V> BTreeMap<'_, K, V> {
     /// Gets an iterator over the entries of the map, sorted by key.
     ///
     /// # Examples
