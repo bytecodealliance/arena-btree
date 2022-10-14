@@ -7,7 +7,7 @@ use super::node::{marker, ForceResult::*, Handle, NodeRef};
 use SearchBound::*;
 use SearchResult::*;
 
-pub enum SearchBound<T> {
+pub(crate) enum SearchBound<T> {
     /// An inclusive bound to look for, just like `Bound::Included(T)`.
     Included(T),
     /// An exclusive bound to look for, just like `Bound::Excluded(T)`.
@@ -28,12 +28,12 @@ impl<T> SearchBound<T> {
     }
 }
 
-pub enum SearchResult<BorrowType, K, V, FoundType, GoDownType> {
+pub(crate) enum SearchResult<BorrowType, K, V, FoundType, GoDownType> {
     Found(Handle<NodeRef<BorrowType, K, V, FoundType>, marker::KV>),
     GoDown(Handle<NodeRef<BorrowType, K, V, GoDownType>, marker::Edge>),
 }
 
-pub enum IndexResult {
+pub(crate) enum IndexResult {
     KV(usize),
     Edge(usize),
 }
@@ -97,28 +97,17 @@ impl<BorrowType: marker::BorrowType, K, V> NodeRef<BorrowType, K, V, marker::Lea
         K: Borrow<Q>,
         R: RangeBounds<Q>,
     {
-        // Determine if map or set is being searched
-        let is_set = <V as super::set_val::IsSetVal>::is_set_val();
-
         // Inlining these variables should be avoided. We assume the bounds reported by `range`
         // remain the same, but an adversarial implementation could change between calls (#81138).
         let (start, end) = (range.start_bound(), range.end_bound());
         match (start, end) {
             (Bound::Excluded(s), Bound::Excluded(e)) if s == e => {
-                if is_set {
-                    panic!("range start and end are equal and excluded in BTreeSet")
-                } else {
-                    panic!("range start and end are equal and excluded in BTreeMap")
-                }
+                panic!("range start and end are equal and excluded in BTree{{Set,Map}}")
             }
             (Bound::Included(s) | Bound::Excluded(s), Bound::Included(e) | Bound::Excluded(e))
                 if s > e =>
             {
-                if is_set {
-                    panic!("range start is greater than range end in BTreeSet")
-                } else {
-                    panic!("range start is greater than range end in BTreeMap")
-                }
+                panic!("range start is greater than range end in BTree{{Set,Map}}")
             }
             _ => {}
         }
@@ -218,7 +207,10 @@ impl<BorrowType, K, V, Type> NodeRef<BorrowType, K, V, Type> {
         let node = self.reborrow();
         let keys = node.keys();
         debug_assert!(start_index <= keys.len());
-        for (offset, k) in unsafe { keys.get_unchecked(start_index..) }.iter().enumerate() {
+        for (offset, k) in unsafe { keys.get_unchecked(start_index..) }
+            .iter()
+            .enumerate()
+        {
             match key.cmp(k.borrow()) {
                 Ordering::Greater => {}
                 Ordering::Equal => return IndexResult::KV(start_index + offset),

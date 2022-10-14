@@ -1,3 +1,6 @@
+#![allow(warnings)] // TODO FITZGEN: temp
+
+mod alloc;
 mod append;
 mod borrow;
 mod dedup_sorted_iter;
@@ -12,6 +15,16 @@ mod search;
 pub mod set;
 mod set_val;
 mod split;
+
+pub use alloc::Arena;
+pub use map::BTreeMap;
+pub use set::{BTreeSet, SetArena};
+
+#[cfg(feature = "arbitrary")]
+mod arbitrary;
+
+#[cfg(all(feature = "arbitrary", any(fuzzing, test)))]
+pub mod differential;
 
 #[doc(hidden)]
 trait Recover<Q: ?Sized> {

@@ -1,30 +1,42 @@
 use super::map::MIN_LEN;
 use super::node::{marker, ForceResult::*, Handle, LeftOrRight::*, NodeRef};
-use core::alloc::Allocator;
+use crate::alloc::Arena;
 
 impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal>, marker::KV> {
     /// Removes a key-value pair from the tree, and returns that pair, as well as
     /// the leaf edge corresponding to that former pair. It's possible this empties
     /// a root node that is internal, which the caller should pop from the map
     /// holding the tree. The caller should also decrement the map's length.
-    pub fn remove_kv_tracking<F: FnOnce(), A: Allocator + Clone>(
+    pub fn remove_kv_tracking<F>(
         self,
         handle_emptied_internal_root: F,
-        alloc: A,
-    ) -> ((K, V), Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, marker::Edge>) {
+        arena: &Arena<K, V>,
+    ) -> (
+        (K, V),
+        Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, marker::Edge>,
+    )
+    where
+        F: FnOnce(&Arena<K, V>),
+    {
         match self.force() {
-            Leaf(node) => node.remove_leaf_kv(handle_emptied_internal_root, alloc),
-            Internal(node) => node.remove_internal_kv(handle_emptied_internal_root, alloc),
+            Leaf(node) => node.remove_leaf_kv(handle_emptied_internal_root, arena),
+            Internal(node) => node.remove_internal_kv(handle_emptied_internal_root, arena),
         }
     }
 }
 
 impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, marker::KV> {
-    fn remove_leaf_kv<F: FnOnce(), A: Allocator + Clone>(
+    fn remove_leaf_kv<F>(
         self,
         handle_emptied_internal_root: F,
-        alloc: A,
-    ) -> ((K, V), Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, marker::Edge>) {
+        arena: &Arena<K, V>,
+    ) -> (
+        (K, V),
+        Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, marker::Edge>,
+    )
+    where
+        F: FnOnce(&Arena<K, V>),
+    {
         let (old_kv, mut pos) = self.remove();
         let len = pos.reborrow().into_node().len();
         if len < MIN_LEN {
@@ -35,7 +47,7 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, mark
                 Ok(Left(left_parent_kv)) => {
                     debug_assert!(left_parent_kv.right_child_len() == MIN_LEN - 1);
                     if left_parent_kv.can_merge() {
-                        left_parent_kv.merge_tracking_child_edge(Right(idx), alloc.clone())
+                        left_parent_kv.merge_tracking_child_edge(Right(idx), arena)
                     } else {
                         debug_assert!(left_parent_kv.left_child_len() > MIN_LEN);
                         left_parent_kv.steal_left(idx)
@@ -44,7 +56,7 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, mark
                 Ok(Right(right_parent_kv)) => {
                     debug_assert!(right_parent_kv.left_child_len() == MIN_LEN - 1);
                     if right_parent_kv.can_merge() {
-                        right_parent_kv.merge_tracking_child_edge(Left(idx), alloc.clone())
+                        right_parent_kv.merge_tracking_child_edge(Left(idx), arena)
                     } else {
                         debug_assert!(right_parent_kv.right_child_len() > MIN_LEN);
                         right_parent_kv.steal_right(idx)
@@ -63,8 +75,12 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, mark
             // rearrange the parent through the grandparent, thus change the
             // link to the parent inside the leaf.
             if let Ok(parent) = unsafe { pos.reborrow_mut() }.into_node().ascend() {
-                if !parent.into_node().forget_type().fix_node_and_affected_ancestors(alloc) {
-                    handle_emptied_internal_root();
+                if !parent
+                    .into_node()
+                    .forget_type()
+                    .fix_node_and_affected_ancestors(arena)
+                {
+                    handle_emptied_internal_root(arena);
                 }
             }
         }
@@ -73,17 +89,23 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, mark
 }
 
 impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Internal>, marker::KV> {
-    fn remove_internal_kv<F: FnOnce(), A: Allocator + Clone>(
+    fn remove_internal_kv<F>(
         self,
         handle_emptied_internal_root: F,
-        alloc: A,
-    ) -> ((K, V), Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, marker::Edge>) {
+        arena: &Arena<K, V>,
+    ) -> (
+        (K, V),
+        Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, marker::Edge>,
+    )
+    where
+        F: FnOnce(&Arena<K, V>),
+    {
         // Remove an adjacent KV from its leaf and then put it back in place of
         // the element we were asked to remove. Prefer the left adjacent KV,
         // for the reasons listed in `choose_parent_kv`.
         let left_leaf_kv = self.left_edge().descend().last_leaf_edge().left_kv();
         let left_leaf_kv = unsafe { left_leaf_kv.ok().unwrap_unchecked() };
-        let (left_kv, left_hole) = left_leaf_kv.remove_leaf_kv(handle_emptied_internal_root, alloc);
+        let (left_kv, left_hole) = left_leaf_kv.remove_leaf_kv(handle_emptied_internal_root, arena);
 
         // The internal node may have been stolen from or merged. Go back right
         // to find where the original KV ended up.

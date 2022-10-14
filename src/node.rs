@@ -31,13 +31,12 @@
 //   since leaf edges are empty and need no data representation. In an internal node,
 //   an edge both identifies a position and contains a pointer to a child node.
 
+use crate::alloc::Arena;
 use core::marker::PhantomData;
 use core::mem::{self, MaybeUninit};
 use core::ptr::{self, NonNull};
 use core::slice::SliceIndex;
-
-use crate::alloc::{Allocator, Layout};
-use crate::boxed::Box;
+use std::alloc::Layout;
 
 const B: usize = 6;
 pub const CAPACITY: usize = 2 * B - 1;
@@ -47,7 +46,7 @@ const EDGE_IDX_LEFT_OF_CENTER: usize = B - 1;
 const EDGE_IDX_RIGHT_OF_CENTER: usize = B;
 
 /// The underlying representation of leaf nodes and part of the representation of internal nodes.
-struct LeafNode<K, V> {
+pub(crate) struct LeafNode<K, V> {
     /// We want to be covariant in `K` and `V`.
     parent: Option<NonNull<InternalNode<K, V>>>,
 
@@ -78,11 +77,11 @@ impl<K, V> LeafNode<K, V> {
     }
 
     /// Creates a new boxed `LeafNode`.
-    fn new<A: Allocator + Clone>(alloc: A) -> Box<Self, A> {
+    fn new(arena: &Arena<K, V>) -> NonNull<Self> {
         unsafe {
-            let mut leaf = Box::new_uninit_in(alloc);
-            LeafNode::init(leaf.as_mut_ptr());
-            leaf.assume_init()
+            let mut leaf = arena.allocate_leaf_node();
+            LeafNode::init(leaf.as_mut());
+            leaf
         }
     }
 }
@@ -94,7 +93,7 @@ impl<K, V> LeafNode<K, V> {
 /// which of the two a pointer is pointing at. This property is enabled by the use of `repr(C)`.
 #[repr(C)]
 // gdb_providers.py uses this type name for introspection.
-struct InternalNode<K, V> {
+pub(crate) struct InternalNode<K, V> {
     data: LeafNode<K, V>,
 
     /// The pointers to the children of this node. `len + 1` of these are considered
@@ -110,12 +109,12 @@ impl<K, V> InternalNode<K, V> {
     /// An invariant of internal nodes is that they have at least one
     /// initialized and valid edge. This function does not set up
     /// such an edge.
-    unsafe fn new<A: Allocator + Clone>(alloc: A) -> Box<Self, A> {
+    unsafe fn new(arena: &Arena<K, V>) -> NonNull<Self> {
         unsafe {
-            let mut node = Box::<Self, _>::new_uninit_in(alloc);
+            let mut node = arena.allocate_internal_node();
             // We only need to initialize the data; the edges are MaybeUninit.
-            LeafNode::init(ptr::addr_of_mut!((*node.as_mut_ptr()).data));
-            node.assume_init()
+            LeafNode::init(ptr::addr_of_mut!((*node.as_mut()).data));
+            node
         }
     }
 }
@@ -179,7 +178,7 @@ type BoxedNode<K, V> = NonNull<LeafNode<K, V>>;
 ///   as the returned reference is used.
 ///   The methods supporting insert bend this rule by returning a raw pointer,
 ///   i.e., a reference without any lifetime.
-pub struct NodeRef<BorrowType, K, V, Type> {
+pub(crate) struct NodeRef<BorrowType, K, V, Type> {
     /// The number of levels that the node and the level of leaves are apart, a
     /// constant of the node that cannot be entirely described by `Type`, and that
     /// the node itself does not store. We only need to store the height of the root
@@ -195,7 +194,7 @@ pub struct NodeRef<BorrowType, K, V, Type> {
 /// The root node of an owned tree.
 ///
 /// Note that this does not have a destructor, and must be cleaned up manually.
-pub type Root<K, V> = NodeRef<marker::Owned, K, V, marker::LeafOrInternal>;
+pub(crate) type Root<K, V> = NodeRef<marker::Owned, K, V, marker::LeafOrInternal>;
 
 impl<'a, K: 'a, V: 'a, Type> Copy for NodeRef<marker::Immut<'a>, K, V, Type> {}
 impl<'a, K: 'a, V: 'a, Type> Clone for NodeRef<marker::Immut<'a>, K, V, Type> {
@@ -213,31 +212,38 @@ unsafe impl<K: Send, V: Send, Type> Send for NodeRef<marker::Owned, K, V, Type> 
 unsafe impl<K: Send, V: Send, Type> Send for NodeRef<marker::Dying, K, V, Type> {}
 
 impl<K, V> NodeRef<marker::Owned, K, V, marker::Leaf> {
-    pub fn new_leaf<A: Allocator + Clone>(alloc: A) -> Self {
-        Self::from_new_leaf(LeafNode::new(alloc))
+    pub fn new_leaf(arena: &Arena<K, V>) -> Self {
+        Self::from_new_leaf(LeafNode::new(arena))
     }
 
-    fn from_new_leaf<A: Allocator + Clone>(leaf: Box<LeafNode<K, V>, A>) -> Self {
-        NodeRef { height: 0, node: NonNull::from(Box::leak(leaf)), _marker: PhantomData }
+    fn from_new_leaf(leaf: NonNull<LeafNode<K, V>>) -> Self {
+        NodeRef {
+            height: 0,
+            node: leaf,
+            _marker: PhantomData,
+        }
     }
 }
 
 impl<K, V> NodeRef<marker::Owned, K, V, marker::Internal> {
-    fn new_internal<A: Allocator + Clone>(child: Root<K, V>, alloc: A) -> Self {
-        let mut new_node = unsafe { InternalNode::new(alloc) };
-        new_node.edges[0].write(child.node);
-        unsafe { NodeRef::from_new_internal(new_node, child.height + 1) }
+    fn new_internal(child: Root<K, V>, arena: &Arena<K, V>) -> Self {
+        let mut new_node = unsafe { InternalNode::new(arena) };
+        unsafe {
+            new_node.as_mut().edges[0].write(child.node);
+            NodeRef::from_new_internal(new_node, child.height + 1)
+        }
     }
 
     /// # Safety
     /// `height` must not be zero.
-    unsafe fn from_new_internal<A: Allocator + Clone>(
-        internal: Box<InternalNode<K, V>, A>,
-        height: usize,
-    ) -> Self {
+    unsafe fn from_new_internal(internal: NonNull<InternalNode<K, V>>, height: usize) -> Self {
         debug_assert!(height > 0);
-        let node = NonNull::from(Box::leak(internal)).cast();
-        let mut this = NodeRef { height, node, _marker: PhantomData };
+        let node = internal.cast();
+        let mut this = NodeRef {
+            height,
+            node,
+            _marker: PhantomData,
+        };
         this.borrow_mut().correct_all_childrens_parent_links();
         this
     }
@@ -247,7 +253,11 @@ impl<BorrowType, K, V> NodeRef<BorrowType, K, V, marker::Internal> {
     /// Unpack a node reference that was packed as `NodeRef::parent`.
     fn from_internal(node: NonNull<InternalNode<K, V>>, height: usize) -> Self {
         debug_assert!(height > 0);
-        NodeRef { height, node: node.cast(), _marker: PhantomData }
+        NodeRef {
+            height,
+            node: node.cast(),
+            _marker: PhantomData,
+        }
     }
 }
 
@@ -291,7 +301,11 @@ impl<BorrowType, K, V, Type> NodeRef<BorrowType, K, V, Type> {
 
     /// Temporarily takes out another, immutable reference to the same node.
     pub fn reborrow(&self) -> NodeRef<marker::Immut<'_>, K, V, Type> {
-        NodeRef { height: self.height, node: self.node, _marker: PhantomData }
+        NodeRef {
+            height: self.height,
+            node: self.node,
+            _marker: PhantomData,
+        }
     }
 
     /// Exposes the leaf portion of any leaf or internal node.
@@ -359,7 +373,11 @@ impl<BorrowType: marker::BorrowType, K, V, Type> NodeRef<BorrowType, K, V, Type>
 impl<BorrowType, K, V, Type> NodeRef<BorrowType, K, V, Type> {
     /// Could be a public implementation of PartialEq, but only used in this module.
     fn eq(&self, other: &Self) -> bool {
-        let Self { node, height, _marker } = self;
+        let Self {
+            node,
+            height,
+            _marker,
+        } = self;
         if node.eq(&other.node) {
             debug_assert_eq!(*height, other.height);
             true
@@ -381,7 +399,15 @@ impl<'a, K: 'a, V: 'a, Type> NodeRef<marker::Immut<'a>, K, V, Type> {
     pub fn keys(&self) -> &[K] {
         let leaf = self.into_leaf();
         unsafe {
-            MaybeUninit::slice_assume_init_ref(leaf.keys.get_unchecked(..usize::from(leaf.len)))
+            // This is `MaybeUninit::slice_assume_init_ref` but that is unstable.
+            {
+                let slice: &[MaybeUninit<K>] = leaf.keys.get_unchecked(..usize::from(leaf.len));
+                // SAFETY: casting `slice` to a `*const [T]` is safe since the caller guarantees that
+                // `slice` is initialized, and `MaybeUninit` is guaranteed to have the same layout as `T`.
+                // The pointer obtained is valid since it refers to memory owned by `slice` which is a
+                // reference and thus guaranteed to be valid for reads.
+                unsafe { &*(slice as *const [MaybeUninit<K>] as *const [K]) }
+            }
         }
     }
 }
@@ -390,22 +416,19 @@ impl<K, V> NodeRef<marker::Dying, K, V, marker::LeafOrInternal> {
     /// Similar to `ascend`, gets a reference to a node's parent node, but also
     /// deallocates the current node in the process. This is unsafe because the
     /// current node will still be accessible despite being deallocated.
-    pub unsafe fn deallocate_and_ascend<A: Allocator + Clone>(
+    pub unsafe fn deallocate_and_ascend(
         self,
-        alloc: A,
+        arena: &Arena<K, V>,
     ) -> Option<Handle<NodeRef<marker::Dying, K, V, marker::Internal>, marker::Edge>> {
         let height = self.height;
         let node = self.node;
         let ret = self.ascend().ok();
         unsafe {
-            alloc.deallocate(
-                node.cast(),
-                if height > 0 {
-                    Layout::new::<InternalNode<K, V>>()
-                } else {
-                    Layout::new::<LeafNode<K, V>>()
-                },
-            );
+            if height > 0 {
+                arena.deallocate_internal_node(node.cast())
+            } else {
+                arena.deallocate_leaf_node(node.cast())
+            }
         }
         ret
     }
@@ -423,7 +446,11 @@ impl<'a, K, V, Type> NodeRef<marker::Mut<'a>, K, V, Type> {
     // that restricts the use of navigation methods on reborrowed pointers,
     // preventing this unsafety.
     unsafe fn reborrow_mut(&mut self) -> NodeRef<marker::Mut<'_>, K, V, Type> {
-        NodeRef { height: self.height, node: self.node, _marker: PhantomData }
+        NodeRef {
+            height: self.height,
+            node: self.node,
+            _marker: PhantomData,
+        }
     }
 
     /// Borrows exclusive access to the leaf portion of a leaf or internal node.
@@ -462,7 +489,12 @@ impl<'a, K: 'a, V: 'a, Type> NodeRef<marker::Mut<'a>, K, V, Type> {
         // SAFETY: the caller will not be able to call further methods on self
         // until the key slice reference is dropped, as we have unique access
         // for the lifetime of the borrow.
-        unsafe { self.as_leaf_mut().keys.as_mut_slice().get_unchecked_mut(index) }
+        unsafe {
+            self.as_leaf_mut()
+                .keys
+                .as_mut_slice()
+                .get_unchecked_mut(index)
+        }
     }
 
     /// Borrows exclusive access to an element or slice of the node's value storage area.
@@ -476,7 +508,12 @@ impl<'a, K: 'a, V: 'a, Type> NodeRef<marker::Mut<'a>, K, V, Type> {
         // SAFETY: the caller will not be able to call further methods on self
         // until the value slice reference is dropped, as we have unique access
         // for the lifetime of the borrow.
-        unsafe { self.as_leaf_mut().vals.as_mut_slice().get_unchecked_mut(index) }
+        unsafe {
+            self.as_leaf_mut()
+                .vals
+                .as_mut_slice()
+                .get_unchecked_mut(index)
+        }
     }
 }
 
@@ -492,8 +529,21 @@ impl<'a, K: 'a, V: 'a> NodeRef<marker::Mut<'a>, K, V, marker::Internal> {
         // SAFETY: the caller will not be able to call further methods on self
         // until the edge slice reference is dropped, as we have unique access
         // for the lifetime of the borrow.
-        unsafe { self.as_internal_mut().edges.as_mut_slice().get_unchecked_mut(index) }
+        unsafe {
+            self.as_internal_mut()
+                .edges
+                .as_mut_slice()
+                .get_unchecked_mut(index)
+        }
     }
+}
+
+unsafe fn get_unchecked<'a, T>(xs: *const [T], idx: usize) -> &'a T {
+    (&*xs).get_unchecked(idx)
+}
+
+unsafe fn get_unchecked_mut<'a, T>(xs: *mut [T], idx: usize) -> &'a mut T {
+    (&mut *xs).get_unchecked_mut(idx)
 }
 
 impl<'a, K, V, Type> NodeRef<marker::ValMut<'a>, K, V, Type> {
@@ -509,8 +559,8 @@ impl<'a, K, V, Type> NodeRef<marker::ValMut<'a>, K, V, Type> {
         // We must coerce to unsized array pointers because of Rust issue #74679.
         let keys: *const [_] = keys;
         let vals: *mut [_] = vals;
-        let key = unsafe { (&*keys.get_unchecked(idx)).assume_init_ref() };
-        let val = unsafe { (&mut *vals.get_unchecked_mut(idx)).assume_init_mut() };
+        let key = unsafe { get_unchecked::<MaybeUninit<K>>(keys, idx).assume_init_ref() };
+        let val = unsafe { get_unchecked_mut(vals, idx).assume_init_mut() };
         (key, val)
     }
 }
@@ -559,21 +609,30 @@ impl<K, V> NodeRef<marker::Owned, K, V, marker::LeafOrInternal> {
 
 impl<K, V> NodeRef<marker::Owned, K, V, marker::LeafOrInternal> {
     /// Returns a new owned tree, with its own root node that is initially empty.
-    pub fn new<A: Allocator + Clone>(alloc: A) -> Self {
-        NodeRef::new_leaf(alloc).forget_type()
+    pub fn new(arena: &Arena<K, V>) -> Self {
+        NodeRef::new_leaf(arena).forget_type()
     }
 
     /// Adds a new internal node with a single edge pointing to the previous root node,
     /// make that new node the root node, and return it. This increases the height by 1
     /// and is the opposite of `pop_internal_level`.
-    pub fn push_internal_level<A: Allocator + Clone>(
-        &mut self,
-        alloc: A,
-    ) -> NodeRef<marker::Mut<'_>, K, V, marker::Internal> {
-        super::mem::take_mut(self, |old_root| NodeRef::new_internal(old_root, alloc).forget_type());
+    pub fn push_internal_level<'a, 'arena>(
+        &'a mut self,
+        arena: &'arena Arena<K, V>,
+    ) -> NodeRef<marker::Mut<'a>, K, V, marker::Internal>
+    where
+        'a: 'arena,
+    {
+        super::mem::take_mut(self, |old_root| {
+            NodeRef::new_internal(old_root, arena).forget_type()
+        });
 
         // `self.borrow_mut()`, except that we just forgot we're internal now:
-        NodeRef { height: self.height, node: self.node, _marker: PhantomData }
+        NodeRef {
+            height: self.height,
+            node: self.node,
+            _marker: PhantomData,
+        }
     }
 
     /// Removes the internal root node, using its first child as the new root node.
@@ -585,7 +644,7 @@ impl<K, V> NodeRef<marker::Owned, K, V, marker::LeafOrInternal> {
     /// it will not invalidate other handles or references to the root node.
     ///
     /// Panics if there is no internal level, i.e., if the root node is a leaf.
-    pub fn pop_internal_level<A: Allocator + Clone>(&mut self, alloc: A) {
+    pub fn pop_internal_level(&mut self, arena: &Arena<K, V>) {
         assert!(self.height > 0);
 
         let top = self.node;
@@ -600,7 +659,7 @@ impl<K, V> NodeRef<marker::Owned, K, V, marker::LeafOrInternal> {
         self.clear_parent_link();
 
         unsafe {
-            alloc.deallocate(top.cast(), Layout::new::<InternalNode<K, V>>());
+            arena.deallocate_internal_node(top.cast());
         }
     }
 }
@@ -610,18 +669,30 @@ impl<K, V, Type> NodeRef<marker::Owned, K, V, Type> {
     /// because the return value cannot be used to destroy the root, and there
     /// cannot be other references to the tree.
     pub fn borrow_mut(&mut self) -> NodeRef<marker::Mut<'_>, K, V, Type> {
-        NodeRef { height: self.height, node: self.node, _marker: PhantomData }
+        NodeRef {
+            height: self.height,
+            node: self.node,
+            _marker: PhantomData,
+        }
     }
 
     /// Slightly mutably borrows the owned root node.
     pub fn borrow_valmut(&mut self) -> NodeRef<marker::ValMut<'_>, K, V, Type> {
-        NodeRef { height: self.height, node: self.node, _marker: PhantomData }
+        NodeRef {
+            height: self.height,
+            node: self.node,
+            _marker: PhantomData,
+        }
     }
 
     /// Irreversibly transitions to a reference that permits traversal and offers
     /// destructive methods and little else.
     pub fn into_dying(self) -> NodeRef<marker::Dying, K, V, Type> {
-        NodeRef { height: self.height, node: self.node, _marker: PhantomData }
+        NodeRef {
+            height: self.height,
+            node: self.node,
+            _marker: PhantomData,
+        }
     }
 }
 
@@ -662,14 +733,22 @@ impl<'a, K: 'a, V: 'a> NodeRef<marker::Mut<'a>, K, V, marker::Internal> {
 impl<BorrowType, K, V> NodeRef<BorrowType, K, V, marker::Leaf> {
     /// Removes any static information asserting that this node is a `Leaf` node.
     pub fn forget_type(self) -> NodeRef<BorrowType, K, V, marker::LeafOrInternal> {
-        NodeRef { height: self.height, node: self.node, _marker: PhantomData }
+        NodeRef {
+            height: self.height,
+            node: self.node,
+            _marker: PhantomData,
+        }
     }
 }
 
 impl<BorrowType, K, V> NodeRef<BorrowType, K, V, marker::Internal> {
     /// Removes any static information asserting that this node is an `Internal` node.
     pub fn forget_type(self) -> NodeRef<BorrowType, K, V, marker::LeafOrInternal> {
-        NodeRef { height: self.height, node: self.node, _marker: PhantomData }
+        NodeRef {
+            height: self.height,
+            node: self.node,
+            _marker: PhantomData,
+        }
     }
 }
 
@@ -701,13 +780,21 @@ impl<'a, K, V> NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal> {
     /// Unsafely asserts to the compiler the static information that this node is a `Leaf`.
     unsafe fn cast_to_leaf_unchecked(self) -> NodeRef<marker::Mut<'a>, K, V, marker::Leaf> {
         debug_assert!(self.height == 0);
-        NodeRef { height: self.height, node: self.node, _marker: PhantomData }
+        NodeRef {
+            height: self.height,
+            node: self.node,
+            _marker: PhantomData,
+        }
     }
 
     /// Unsafely asserts to the compiler the static information that this node is an `Internal`.
     unsafe fn cast_to_internal_unchecked(self) -> NodeRef<marker::Mut<'a>, K, V, marker::Internal> {
         debug_assert!(self.height > 0);
-        NodeRef { height: self.height, node: self.node, _marker: PhantomData }
+        NodeRef {
+            height: self.height,
+            node: self.node,
+            _marker: PhantomData,
+        }
     }
 }
 
@@ -719,7 +806,7 @@ impl<'a, K, V> NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal> {
 /// a child node, these represent the spaces where child pointers would go between the key-value
 /// pairs. For example, in a node with length 2, there would be 3 possible edge locations - one
 /// to the left of the node, one between the two pairs, and one at the right of the node.
-pub struct Handle<Node, Type> {
+pub(crate) struct Handle<Node, Type> {
     node: Node,
     idx: usize,
     _marker: PhantomData<Type>,
@@ -752,7 +839,11 @@ impl<BorrowType, K, V, NodeType> Handle<NodeRef<BorrowType, K, V, NodeType>, mar
     pub unsafe fn new_kv(node: NodeRef<BorrowType, K, V, NodeType>, idx: usize) -> Self {
         debug_assert!(idx < node.len());
 
-        Handle { node, idx, _marker: PhantomData }
+        Handle {
+            node,
+            idx,
+            _marker: PhantomData,
+        }
     }
 
     pub fn left_edge(self) -> Handle<NodeRef<BorrowType, K, V, NodeType>, marker::Edge> {
@@ -779,7 +870,11 @@ impl<BorrowType, K, V, NodeType, HandleType>
     /// Temporarily takes out another immutable handle on the same location.
     pub fn reborrow(&self) -> Handle<NodeRef<marker::Immut<'_>, K, V, NodeType>, HandleType> {
         // We can't use Handle::new_kv or Handle::new_edge because we don't know our type
-        Handle { node: self.node.reborrow(), idx: self.idx, _marker: PhantomData }
+        Handle {
+            node: self.node.reborrow(),
+            idx: self.idx,
+            _marker: PhantomData,
+        }
     }
 }
 
@@ -793,7 +888,11 @@ impl<'a, K, V, NodeType, HandleType> Handle<NodeRef<marker::Mut<'a>, K, V, NodeT
         &mut self,
     ) -> Handle<NodeRef<marker::Mut<'_>, K, V, NodeType>, HandleType> {
         // We can't use Handle::new_kv or Handle::new_edge because we don't know our type
-        Handle { node: unsafe { self.node.reborrow_mut() }, idx: self.idx, _marker: PhantomData }
+        Handle {
+            node: unsafe { self.node.reborrow_mut() },
+            idx: self.idx,
+            _marker: PhantomData,
+        }
     }
 }
 
@@ -803,7 +902,11 @@ impl<BorrowType, K, V, NodeType> Handle<NodeRef<BorrowType, K, V, NodeType>, mar
     pub unsafe fn new_edge(node: NodeRef<BorrowType, K, V, NodeType>, idx: usize) -> Self {
         debug_assert!(idx <= node.len());
 
-        Handle { node, idx, _marker: PhantomData }
+        Handle {
+            node,
+            idx,
+            _marker: PhantomData,
+        }
     }
 
     pub fn left_kv(self) -> Result<Handle<NodeRef<BorrowType, K, V, NodeType>, marker::KV>, Self> {
@@ -837,10 +940,15 @@ fn splitpoint(edge_idx: usize) -> (usize, LeftOrRight<usize>) {
     debug_assert!(edge_idx <= CAPACITY);
     // Rust issue #74834 tries to explain these symmetric rules.
     match edge_idx {
-        0..EDGE_IDX_LEFT_OF_CENTER => (KV_IDX_CENTER - 1, LeftOrRight::Left(edge_idx)),
+        x if 0 <= x && x < EDGE_IDX_LEFT_OF_CENTER => {
+            (KV_IDX_CENTER - 1, LeftOrRight::Left(edge_idx))
+        }
         EDGE_IDX_LEFT_OF_CENTER => (KV_IDX_CENTER, LeftOrRight::Left(edge_idx)),
         EDGE_IDX_RIGHT_OF_CENTER => (KV_IDX_CENTER, LeftOrRight::Right(0)),
-        _ => (KV_IDX_CENTER + 1, LeftOrRight::Right(edge_idx - (KV_IDX_CENTER + 1 + 1))),
+        _ => (
+            KV_IDX_CENTER + 1,
+            LeftOrRight::Right(edge_idx - (KV_IDX_CENTER + 1 + 1)),
+        ),
     }
 }
 
@@ -869,11 +977,11 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, mark
     /// this edge. This method splits the node if there isn't enough room.
     ///
     /// The returned pointer points to the inserted value.
-    fn insert<A: Allocator + Clone>(
+    fn insert(
         mut self,
         key: K,
         val: V,
-        alloc: A,
+        arena: &Arena<K, V>,
     ) -> (Option<SplitResult<'a, K, V, marker::Leaf>>, *mut V) {
         if self.node.len() < CAPACITY {
             let val_ptr = self.insert_fit(key, val);
@@ -881,7 +989,7 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, mark
         } else {
             let (middle_kv_idx, insertion) = splitpoint(self.idx);
             let middle = unsafe { Handle::new_kv(self.node, middle_kv_idx) };
-            let mut result = middle.split(alloc);
+            let mut result = middle.split(arena);
             let mut insertion_edge = match insertion {
                 LeftOrRight::Left(insert_idx) => unsafe {
                     Handle::new_edge(result.left.reborrow_mut(), insert_idx)
@@ -920,22 +1028,27 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Internal>, 
         unsafe {
             slice_insert(self.node.key_area_mut(..new_len), self.idx, key);
             slice_insert(self.node.val_area_mut(..new_len), self.idx, val);
-            slice_insert(self.node.edge_area_mut(..new_len + 1), self.idx + 1, edge.node);
+            slice_insert(
+                self.node.edge_area_mut(..new_len + 1),
+                self.idx + 1,
+                edge.node,
+            );
             *self.node.len_mut() = new_len as u16;
 
-            self.node.correct_childrens_parent_links(self.idx + 1..new_len + 1);
+            self.node
+                .correct_childrens_parent_links(self.idx + 1..new_len + 1);
         }
     }
 
     /// Inserts a new key-value pair and an edge that will go to the right of that new pair
     /// between this edge and the key-value pair to the right of this edge. This method splits
     /// the node if there isn't enough room.
-    fn insert<A: Allocator + Clone>(
+    fn insert(
         mut self,
         key: K,
         val: V,
         edge: Root<K, V>,
-        alloc: A,
+        arena: &Arena<K, V>,
     ) -> Option<SplitResult<'a, K, V, marker::Internal>> {
         assert!(edge.height == self.node.height - 1);
 
@@ -945,7 +1058,7 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Internal>, 
         } else {
             let (middle_kv_idx, insertion) = splitpoint(self.idx);
             let middle = unsafe { Handle::new_kv(self.node, middle_kv_idx) };
-            let mut result = middle.split(alloc);
+            let mut result = middle.split(arena);
             let mut insertion_edge = match insertion {
                 LeftOrRight::Left(insert_idx) => unsafe {
                     Handle::new_edge(result.left.reborrow_mut(), insert_idx)
@@ -968,26 +1081,35 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, mark
     /// If the returned result is some `SplitResult`, the `left` field will be the root node.
     /// The returned pointer points to the inserted value, which in the case of `SplitResult`
     /// is in the `left` or `right` tree.
-    pub fn insert_recursing<A: Allocator + Clone>(
+    pub fn insert_recursing(
         self,
         key: K,
         value: V,
-        alloc: A,
-    ) -> (Option<SplitResult<'a, K, V, marker::LeafOrInternal>>, *mut V) {
-        let (mut split, val_ptr) = match self.insert(key, value, alloc.clone()) {
+        arena: &Arena<K, V>,
+    ) -> (
+        Option<SplitResult<'a, K, V, marker::LeafOrInternal>>,
+        *mut V,
+    ) {
+        let (mut split, val_ptr) = match self.insert(key, value, arena) {
             (None, val_ptr) => return (None, val_ptr),
             (Some(split), val_ptr) => (split.forget_node_type(), val_ptr),
         };
 
         loop {
             split = match split.left.ascend() {
-                Ok(parent) => {
-                    match parent.insert(split.kv.0, split.kv.1, split.right, alloc.clone()) {
-                        None => return (None, val_ptr),
-                        Some(split) => split.forget_node_type(),
-                    }
+                Ok(parent) => match parent.insert(split.kv.0, split.kv.1, split.right, arena) {
+                    None => return (None, val_ptr),
+                    Some(split) => split.forget_node_type(),
+                },
+                Err(root) => {
+                    return (
+                        Some(SplitResult {
+                            left: root,
+                            ..split
+                        }),
+                        val_ptr,
+                    )
                 }
-                Err(root) => return (Some(SplitResult { left: root, ..split }), val_ptr),
             };
         }
     }
@@ -1012,8 +1134,17 @@ impl<BorrowType: marker::BorrowType, K, V>
         // reference (Rust issue #73987) and invalidate any other references
         // to or inside the array, should any be around.
         let parent_ptr = NodeRef::as_internal_ptr(&self.node);
-        let node = unsafe { (*parent_ptr).edges.get_unchecked(self.idx).assume_init_read() };
-        NodeRef { node, height: self.node.height - 1, _marker: PhantomData }
+        let node = unsafe {
+            (*parent_ptr)
+                .edges
+                .get_unchecked(self.idx)
+                .assume_init_read()
+        };
+        NodeRef {
+            node,
+            height: self.node.height - 1,
+            _marker: PhantomData,
+        }
     }
 }
 
@@ -1128,20 +1259,27 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, mark
     /// - The key and value pointed to by this handle are extracted.
     /// - All the key-value pairs to the right of this handle are put into a newly
     ///   allocated node.
-    pub fn split<A: Allocator + Clone>(mut self, alloc: A) -> SplitResult<'a, K, V, marker::Leaf> {
-        let mut new_node = LeafNode::new(alloc);
+    pub fn split(mut self, arena: &Arena<K, V>) -> SplitResult<'a, K, V, marker::Leaf> {
+        let mut new_node = LeafNode::new(arena);
 
-        let kv = self.split_leaf_data(&mut new_node);
+        let kv = self.split_leaf_data(unsafe { new_node.as_mut() });
 
         let right = NodeRef::from_new_leaf(new_node);
-        SplitResult { left: self.node, kv, right }
+        SplitResult {
+            left: self.node,
+            kv,
+            right,
+        }
     }
 
     /// Removes the key-value pair pointed to by this handle and returns it, along with the edge
     /// that the key-value pair collapsed into.
     pub fn remove(
         mut self,
-    ) -> ((K, V), Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, marker::Edge>) {
+    ) -> (
+        (K, V),
+        Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, marker::Edge>,
+    ) {
         let old_len = self.node.len();
         unsafe {
             let k = slice_remove(self.node.key_area_mut(..old_len), self.idx);
@@ -1160,31 +1298,32 @@ impl<'a, K: 'a, V: 'a> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Internal>, 
     /// - The key and value pointed to by this handle are extracted.
     /// - All the edges and key-value pairs to the right of this handle are put into
     ///   a newly allocated node.
-    pub fn split<A: Allocator + Clone>(
-        mut self,
-        alloc: A,
-    ) -> SplitResult<'a, K, V, marker::Internal> {
+    pub fn split(mut self, arena: &Arena<K, V>) -> SplitResult<'a, K, V, marker::Internal> {
         let old_len = self.node.len();
         unsafe {
-            let mut new_node = InternalNode::new(alloc);
-            let kv = self.split_leaf_data(&mut new_node.data);
-            let new_len = usize::from(new_node.data.len);
+            let mut new_node = InternalNode::new(arena);
+            let kv = self.split_leaf_data(&mut new_node.as_mut().data);
+            let new_len = usize::from(new_node.as_ref().data.len);
             move_to_slice(
                 self.node.edge_area_mut(self.idx + 1..old_len + 1),
-                &mut new_node.edges[..new_len + 1],
+                &mut new_node.as_mut().edges[..new_len + 1],
             );
 
             let height = self.node.height;
             let right = NodeRef::from_new_internal(new_node, height);
 
-            SplitResult { left: self.node, kv, right }
+            SplitResult {
+                left: self.node,
+                kv,
+                right,
+            }
         }
     }
 }
 
 /// Represents a session for evaluating and performing a balancing operation
 /// around an internal key-value pair.
-pub struct BalancingContext<'a, K, V> {
+pub(crate) struct BalancingContext<'a, K, V> {
     parent: Handle<NodeRef<marker::Mut<'a>, K, V, marker::Internal>, marker::KV>,
     left_child: NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal>,
     right_child: NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal>,
@@ -1271,13 +1410,16 @@ impl<'a, K: 'a, V: 'a> BalancingContext<'a, K, V> {
             NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal>,
         ) -> R,
         R,
-        A: Allocator,
     >(
         self,
         result: F,
-        alloc: A,
+        arena: &Arena<K, V>,
     ) -> R {
-        let Handle { node: mut parent_node, idx: parent_idx, _marker } = self.parent;
+        let Handle {
+            node: mut parent_node,
+            idx: parent_idx,
+            _marker,
+        } = self.parent;
         let old_parent_len = parent_node.len();
         let mut left_node = self.left_child;
         let old_left_len = left_node.len();
@@ -1304,7 +1446,10 @@ impl<'a, K: 'a, V: 'a> BalancingContext<'a, K, V> {
                 left_node.val_area_mut(old_left_len + 1..new_left_len),
             );
 
-            slice_remove(&mut parent_node.edge_area_mut(..old_parent_len + 1), parent_idx + 1);
+            slice_remove(
+                &mut parent_node.edge_area_mut(..old_parent_len + 1),
+                parent_idx + 1,
+            );
             parent_node.correct_childrens_parent_links(parent_idx + 1..old_parent_len);
             *parent_node.len_mut() -= 1;
 
@@ -1320,9 +1465,9 @@ impl<'a, K: 'a, V: 'a> BalancingContext<'a, K, V> {
 
                 left_node.correct_childrens_parent_links(old_left_len + 1..new_left_len + 1);
 
-                alloc.deallocate(right_node.node.cast(), Layout::new::<InternalNode<K, V>>());
+                arena.deallocate_internal_node(right_node.node.cast());
             } else {
-                alloc.deallocate(right_node.node.cast(), Layout::new::<LeafNode<K, V>>());
+                arena.deallocate_leaf_node(right_node.node.cast());
             }
         }
         result(parent_node, left_node)
@@ -1332,22 +1477,22 @@ impl<'a, K: 'a, V: 'a> BalancingContext<'a, K, V> {
     /// the left child node and returns the shrunk parent node.
     ///
     /// Panics unless we `.can_merge()`.
-    pub fn merge_tracking_parent<A: Allocator + Clone>(
+    pub fn merge_tracking_parent(
         self,
-        alloc: A,
+        arena: &Arena<K, V>,
     ) -> NodeRef<marker::Mut<'a>, K, V, marker::Internal> {
-        self.do_merge(|parent, _child| parent, alloc)
+        self.do_merge(|parent, _child| parent, arena)
     }
 
     /// Merges the parent's key-value pair and both adjacent child nodes into
     /// the left child node and returns that child node.
     ///
     /// Panics unless we `.can_merge()`.
-    pub fn merge_tracking_child<A: Allocator + Clone>(
+    pub fn merge_tracking_child(
         self,
-        alloc: A,
+        arena: &Arena<K, V>,
     ) -> NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal> {
-        self.do_merge(|_parent, child| child, alloc)
+        self.do_merge(|_parent, child| child, arena)
     }
 
     /// Merges the parent's key-value pair and both adjacent child nodes into
@@ -1355,10 +1500,10 @@ impl<'a, K: 'a, V: 'a> BalancingContext<'a, K, V> {
     /// where the tracked child edge ended up,
     ///
     /// Panics unless we `.can_merge()`.
-    pub fn merge_tracking_child_edge<A: Allocator + Clone>(
+    pub fn merge_tracking_child_edge(
         self,
         track_edge_idx: LeftOrRight<usize>,
-        alloc: A,
+        arena: &Arena<K, V>,
     ) -> Handle<NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInternal>, marker::Edge> {
         let old_left_len = self.left_child.len();
         let right_len = self.right_child.len();
@@ -1366,7 +1511,7 @@ impl<'a, K: 'a, V: 'a> BalancingContext<'a, K, V> {
             LeftOrRight::Left(idx) => idx <= old_left_len,
             LeftOrRight::Right(idx) => idx <= right_len,
         });
-        let child = self.merge_tracking_child(alloc);
+        let child = self.merge_tracking_child(arena);
         let new_idx = match track_edge_idx {
             LeftOrRight::Left(idx) => idx,
             LeftOrRight::Right(idx) => old_left_len + 1 + idx,
@@ -1442,7 +1587,10 @@ impl<'a, K: 'a, V: 'a> BalancingContext<'a, K, V> {
                 right_node.val_area_mut(count - 1).write(v);
             }
 
-            match (left_node.reborrow_mut().force(), right_node.reborrow_mut().force()) {
+            match (
+                left_node.reborrow_mut().force(),
+                right_node.reborrow_mut().force(),
+            ) {
                 (ForceResult::Internal(mut left), ForceResult::Internal(mut right)) => {
                     // Make room for stolen edges.
                     slice_shr(right.edge_area_mut(..new_right_len + 1), count);
@@ -1505,7 +1653,10 @@ impl<'a, K: 'a, V: 'a> BalancingContext<'a, K, V> {
                 slice_shl(right_node.val_area_mut(..old_right_len), count);
             }
 
-            match (left_node.reborrow_mut().force(), right_node.reborrow_mut().force()) {
+            match (
+                left_node.reborrow_mut().force(),
+                right_node.reborrow_mut().force(),
+            ) {
                 (ForceResult::Internal(mut left), ForceResult::Internal(mut right)) => {
                     // Steal edges.
                     move_to_slice(
@@ -1559,12 +1710,16 @@ impl<BorrowType, K, V, Type> Handle<NodeRef<BorrowType, K, V, marker::LeafOrInte
         Handle<NodeRef<BorrowType, K, V, marker::Internal>, Type>,
     > {
         match self.node.force() {
-            ForceResult::Leaf(node) => {
-                ForceResult::Leaf(Handle { node, idx: self.idx, _marker: PhantomData })
-            }
-            ForceResult::Internal(node) => {
-                ForceResult::Internal(Handle { node, idx: self.idx, _marker: PhantomData })
-            }
+            ForceResult::Leaf(node) => ForceResult::Leaf(Handle {
+                node,
+                idx: self.idx,
+                _marker: PhantomData,
+            }),
+            ForceResult::Internal(node) => ForceResult::Internal(Handle {
+                node,
+                idx: self.idx,
+                _marker: PhantomData,
+            }),
         }
     }
 }
@@ -1575,7 +1730,11 @@ impl<'a, K, V, Type> Handle<NodeRef<marker::Mut<'a>, K, V, marker::LeafOrInterna
         self,
     ) -> Handle<NodeRef<marker::Mut<'a>, K, V, marker::Leaf>, Type> {
         let node = unsafe { self.node.cast_to_leaf_unchecked() };
-        Handle { node, idx: self.idx, _marker: PhantomData }
+        Handle {
+            node,
+            idx: self.idx,
+            _marker: PhantomData,
+        }
     }
 }
 
@@ -1631,7 +1790,7 @@ pub enum ForceResult<Leaf, Internal> {
 }
 
 /// Result of insertion, when a node needed to expand beyond its capacity.
-pub struct SplitResult<'a, K, V, NodeType> {
+pub(crate) struct SplitResult<'a, K, V, NodeType> {
     // Altered node in existing tree with elements and edges that belong to the left of `kv`.
     pub left: NodeRef<marker::Mut<'a>, K, V, NodeType>,
     // Some key and value that existed before and were split off, to be inserted elsewhere.
@@ -1642,13 +1801,21 @@ pub struct SplitResult<'a, K, V, NodeType> {
 
 impl<'a, K, V> SplitResult<'a, K, V, marker::Leaf> {
     pub fn forget_node_type(self) -> SplitResult<'a, K, V, marker::LeafOrInternal> {
-        SplitResult { left: self.left.forget_type(), kv: self.kv, right: self.right.forget_type() }
+        SplitResult {
+            left: self.left.forget_type(),
+            kv: self.kv,
+            right: self.right.forget_type(),
+        }
     }
 }
 
 impl<'a, K, V> SplitResult<'a, K, V, marker::Internal> {
     pub fn forget_node_type(self) -> SplitResult<'a, K, V, marker::LeafOrInternal> {
-        SplitResult { left: self.left.forget_type(), kv: self.kv, right: self.right.forget_type() }
+        SplitResult {
+            left: self.left.forget_type(),
+            kv: self.kv,
+            right: self.right.forget_type(),
+        }
     }
 }
 

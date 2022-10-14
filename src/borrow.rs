@@ -11,7 +11,7 @@ use core::ptr::NonNull;
 /// the compiler to follow. A `DormantMutRef` allows you to check borrowing
 /// yourself, while still expressing its stacked nature, and encapsulating
 /// the raw pointer code needed to do this without undefined behavior.
-pub struct DormantMutRef<'a, T> {
+pub(crate) struct DormantMutRef<'a, T> {
     ptr: NonNull<T>,
     _marker: PhantomData<&'a mut T>,
 }
@@ -28,7 +28,13 @@ impl<'a, T> DormantMutRef<'a, T> {
         // SAFETY: we hold the borrow throughout 'a via `_marker`, and we expose
         // only this reference, so it is unique.
         let new_ref = unsafe { &mut *ptr.as_ptr() };
-        (new_ref, Self { ptr, _marker: PhantomData })
+        (
+            new_ref,
+            Self {
+                ptr,
+                _marker: PhantomData,
+            },
+        )
     }
 
     /// Revert to the unique borrow initially captured.

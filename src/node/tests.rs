@@ -1,8 +1,6 @@
 use super::super::navigate;
 use super::*;
-use crate::alloc::Global;
-use crate::fmt::Debug;
-use crate::string::String;
+use std::fmt::Debug;
 
 impl<'a, K: 'a, V: 'a> NodeRef<marker::Immut<'a>, K, V, marker::LeafOrInternal> {
     // Asserts that the back pointer in each reachable node points to its parent.
@@ -68,10 +66,12 @@ fn test_splitpoint() {
 
 #[test]
 fn test_partial_eq() {
-    let mut root1 = NodeRef::new_leaf(Global);
+    let mut arena = Arena::default();
+
+    let mut root1 = NodeRef::new_leaf(&mut arena);
     root1.borrow_mut().push(1, ());
-    let mut root1 = NodeRef::new_internal(root1.forget_type(), Global).forget_type();
-    let root2 = Root::new(Global);
+    let mut root1 = NodeRef::new_internal(root1.forget_type(), &mut arena).forget_type();
+    let root2 = Root::new(&mut arena);
     root1.reborrow().assert_back_pointers();
     root2.reborrow().assert_back_pointers();
 
@@ -87,16 +87,25 @@ fn test_partial_eq() {
     assert!(top_edge_1 == top_edge_1);
     assert!(top_edge_1 != top_edge_2);
 
-    root1.pop_internal_level(Global);
-    unsafe { root1.into_dying().deallocate_and_ascend(Global) };
-    unsafe { root2.into_dying().deallocate_and_ascend(Global) };
+    root1.pop_internal_level(&mut arena);
+    unsafe { root1.into_dying().deallocate_and_ascend(&mut arena) };
+    unsafe { root2.into_dying().deallocate_and_ascend(&mut arena) };
 }
 
 #[test]
 #[cfg(target_arch = "x86_64")]
 fn test_sizes() {
     assert_eq!(core::mem::size_of::<LeafNode<(), ()>>(), 16);
-    assert_eq!(core::mem::size_of::<LeafNode<i64, i64>>(), 16 + CAPACITY * 2 * 8);
-    assert_eq!(core::mem::size_of::<InternalNode<(), ()>>(), 16 + (CAPACITY + 1) * 8);
-    assert_eq!(core::mem::size_of::<InternalNode<i64, i64>>(), 16 + (CAPACITY * 3 + 1) * 8);
+    assert_eq!(
+        core::mem::size_of::<LeafNode<i64, i64>>(),
+        16 + CAPACITY * 2 * 8
+    );
+    assert_eq!(
+        core::mem::size_of::<InternalNode<(), ()>>(),
+        16 + (CAPACITY + 1) * 8
+    );
+    assert_eq!(
+        core::mem::size_of::<InternalNode<i64, i64>>(),
+        16 + (CAPACITY * 3 + 1) * 8
+    );
 }

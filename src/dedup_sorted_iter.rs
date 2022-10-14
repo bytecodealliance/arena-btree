@@ -4,7 +4,7 @@ use core::iter::Peekable;
 /// When encountering the duplicated key, only the last key-value pair is yielded.
 ///
 /// Used by [`BTreeMap::bulk_build_from_sorted_iter`].
-pub struct DedupSortedIter<K, V, I>
+pub(crate) struct DedupSortedIter<K, V, I>
 where
     I: Iterator<Item = (K, V)>,
 {
@@ -16,7 +16,9 @@ where
     I: Iterator<Item = (K, V)>,
 {
     pub fn new(iter: I) -> Self {
-        Self { iter: iter.peekable() }
+        Self {
+            iter: iter.peekable(),
+        }
     }
 }
 
