@@ -41,13 +41,9 @@ impl<K, V> Arena<K, V> {
     #[inline]
     pub(crate) fn allocate_leaf_node(&self) -> NonNull<LeafNode<K, V>> {
         unsafe {
-            let ptr = match self.leaf_nodes.allocate() {
-                Some(ptr) => ptr,
-                None => self
-                    .bump
-                    .alloc_layout(Layout::new::<MaybeFree<LeafNode<K, V>>>())
-                    .cast(),
-            };
+            let ptr = self
+                .bump
+                .alloc_layout(Layout::new::<MaybeFree<LeafNode<K, V>>>());
             ptr.cast::<LeafNode<K, V>>()
         }
     }
@@ -60,13 +56,9 @@ impl<K, V> Arena<K, V> {
     #[inline]
     pub(crate) fn allocate_internal_node(&self) -> NonNull<InternalNode<K, V>> {
         unsafe {
-            let ptr = match self.internal_nodes.allocate() {
-                Some(ptr) => ptr,
-                None => self
-                    .bump
-                    .alloc_layout(Layout::new::<MaybeFree<InternalNode<K, V>>>())
-                    .cast(),
-            };
+            let ptr = self
+                .bump
+                .alloc_layout(Layout::new::<MaybeFree<InternalNode<K, V>>>());
             ptr.cast::<InternalNode<K, V>>()
         }
     }
